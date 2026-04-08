@@ -1,16 +1,53 @@
-# R200 Emulator (Arduino Nano)
+# Sistema de inventario RFID (R200 + Raspberry Pi)
 
-Este proyecto emula por UART (serial) un subconjunto del protocolo del módulo RFID R200 para que un software en Python que usa la librería `rfid-r200` pueda trabajar sin cambios.
+Sistema portátil de inventario RFID UHF para el CICESE, basado en una “pistola” con **Raspberry Pi Zero 2 W** y el módulo **RFID R200** (UART 115200, frames binarios).
 
-## Qué está emulando
+El objetivo es que el personal pueda:
 
-- **Framing**: `0xAA ... checksum ... 0xDD`
-- **Checksum**: suma de bytes desde `Type` hasta el último parámetro, `& 0xFF`
-- **Comandos**:
-  - `0x22` Single Poll (responde con 1..N tramas de tag, `command=0x22`)
-  - `0x27` Multiple Poll (empieza a emitir tramas de tag, `command=0x22`)
-  - `0x28` Stop Multiple Poll (detiene emisión y responde ACK)
-  - `0x03` Get Module Info (responde string simple)
+- **Auditar inventario** por sala: escanear y comparar tags detectados vs inventario esperado.
+- **Escribir/asignar tags**: escribir datos (p. ej. EPC) a un tag y confirmar OK/FAIL.
+- **Rastrear un tag**: buscar un EPC objetivo y mostrar “proximidad” con RSSI.
+
+## Estructura del repositorio
+
+- `rfid_inventory/`: paquete Python de la aplicación (Raspberry Pi).
+- `firmware/arduino_r200_emulator/`: emulador del R200 en Arduino Nano (para desarrollo sin hardware final).
+- `tools/pc/`: utilidades para probar desde PC (por ejemplo `pyserial`).
+
+## Estado actual
+
+Mientras llegan todos los componentes, se usa un **emulador del R200** (Arduino Nano) para avanzar en:
+
+- parsing/encoding de frames
+- driver UART
+- flujos de “inventario”, “escritura” y “rastreo”
+
+## Hardware objetivo (resumen)
+
+- Raspberry Pi Zero 2 W
+- Módulo RFID R200 UHF
+- Antena UHF (SMA)
+- Botón trigger (GPIO): presionar = start scan, soltar = stop scan
+- Pantalla táctil (futuro, UI)
+
+## Protocolo (resumen)
+
+Frame:
+
+`0xAA | TYPE | CMD | LEN_MSB | LEN_LSB | DATA | CHECKSUM | 0xDD`
+
+- `TYPE`: `0x00` comando, `0x01` respuesta, `0x02` notificación
+- `CHECKSUM`: suma de bytes desde `TYPE` hasta el final de `DATA`, `& 0xFF`
+
+Comandos clave:
+
+- `0x27` start multiple poll (scan)
+- `0x28` stop multiple poll
+- `0x49` write
+
+## Emulador R200 (Arduino Nano)
+
+El emulador sirve para que el software en Python pueda probarse sin el R200 real.
 
 ## Cómo usar en Arduino IDE
 
