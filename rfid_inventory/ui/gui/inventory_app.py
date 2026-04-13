@@ -119,6 +119,13 @@ class InventoryApp(tk.Tk):
             messagebox.showinfo("Info", "Ya conectado.")
             return
         port = self.port_var.get().strip()
+        # En Linux los paths en /dev son case-sensitive (ttyUSB0 != ttyusb0).
+        # Si el teclado/UI no permite mayúsculas, normalizamos los casos comunes.
+        port_l = port.lower()
+        if port_l.startswith("/dev/ttyusb"):
+            port = "/dev/ttyUSB" + port[len("/dev/ttyusb") :]
+        elif port_l.startswith("/dev/ttyacm"):
+            port = "/dev/ttyACM" + port[len("/dev/ttyacm") :]
         if not port:
             messagebox.showerror("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
             return
