@@ -1,107 +1,66 @@
-# Sistema de inventario RFID (R200 + Raspberry Pi)
+# Inventario RFID (R200 / emulador) — CICESE
 
-Sistema portátil de inventario RFID UHF para el CICESE, basado en una “pistola” con **Raspberry Pi Zero 2 W** y el módulo **RFID R200** (UART 115200, frames binarios).
+Objetivo: **inventariar por ubicación** comparando una lista de EPC esperados contra lo leído por el lector.
 
-El objetivo es que el personal pueda:
+Este repo está hecho para correr en:
+- **PC** (Windows) con Arduino (emulador) por USB
+- **Raspberry Pi** con Arduino por **USB OTG** (aparece como `/dev/ttyUSB0` o `/dev/ttyACM0`)
 
-- **Auditar inventario** por sala: escanear y comparar tags detectados vs inventario esperado.
-- **Escribir/asignar tags**: escribir datos (p. ej. EPC) a un tag y confirmar OK/FAIL.
-- **Rastrear un tag**: buscar un EPC objetivo y mostrar “proximidad” con RSSI.
+## Cómo se ejecuta
 
-## Estructura del repositorio
-
-- `rfid_inventory/`: paquete Python de la aplicación (Raspberry Pi).
-- `firmware/arduino_r200_emulator/`: emulador del R200 en Arduino Nano (para desarrollo sin hardware final).
-- `tools/pc/`: utilidades para probar desde PC (por ejemplo `pyserial`).
-
-## Estado actual
-
-Mientras llegan todos los componentes, se usa un **emulador del R200** (Arduino Nano) para avanzar en:
-
-- parsing/encoding de frames
-- driver UART
-- flujos de “inventario”, “escritura” y “rastreo”
-
-## Hardware objetivo (resumen)
-
-- Raspberry Pi Zero 2 W
-- Módulo RFID R200 UHF
-- Antena UHF (SMA)
-- Botón trigger (GPIO): presionar = start scan, soltar = stop scan
-- Pantalla táctil (futuro, UI)
-
-## Protocolo (resumen)
-
-Frame:
-
-`0xAA | TYPE | CMD | LEN_MSB | LEN_LSB | DATA | CHECKSUM | 0xDD`
-
-- `TYPE`: `0x00` comando, `0x01` respuesta, `0x02` notificación
-- `CHECKSUM`: suma de bytes desde `TYPE` hasta el final de `DATA`, `& 0xFF`
-
-Comandos clave:
-
-- `0x27` start multiple poll (scan)
-- `0x28` stop multiple poll
-- `0x49` write
-
-## Emulador R200 (Arduino Nano)
-
-El emulador sirve para que el software en Python pueda probarse sin el R200 real.
-
-## Cómo usar en Arduino IDE
-
-1. Abre `firmware/arduino_r200_emulator/r200_emulador.ino`
-2. Selecciona **Arduino Nano** y el puerto correcto.
-3. Compila y sube.
-
-## Probar sin Raspberry (desde tu PC)
-
-El monitor serial del Arduino IDE es para texto; como el R200 usa **bytes binarios**, lo más fácil es usar Python + `pyserial`.
-
-1. Instala pyserial:
+### GUI (ventana)
 
 ```bash
-py -m pip install pyserial
+python -m rfid_inventory.ui.gui.inventory_app
 ```
 
-2. Ejecuta el tester (cambia `COM3` por tu puerto):
+### CLI (terminal, recomendado para Raspberry)
 
 ```bash
-py tools/pc/test_emulator.py --port COM3 --baud 115200
+python -m rfid_inventory.ui.cli.inventory_mode --port COM5
+python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyUSB0
+python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyACM0 --seconds 30
 ```
 
-3. En el prompt, prueba:
-   - `info` (get module info)
-   - `single` (single poll)
-   - `multiple` (multiple poll; verás varias tramas)
-   - `stop` (stop multiple poll)
+Dependencias: `requirements.txt`.
 
-## Conexión UART
+## Estructura (lo esencial)
 
-Arduino Nano (ATmega328P):
+- `rfid_inventory/drivers/r200_driver.py`
+  - Conecta por serial y hace `read_tags_once()` → devuelve una lista de `TagRead(epc_hex, rssi)`.
+- `rfid_inventory/app/scanner.py`
+  - Hilo de fondo que llama a `read_tags_once()` en bucle hasta `stop()`.
+  - Notifica **cada lectura** (incluye repetidos) y guarda un snapshot de EPC únicos + último RSSI.
+- `rfid_inventory/domain/compare.py`
+  - Lógica pura: `compare_expected_found(expected, found)` → OK / FALTA / NUEVO.
+- `rfid_inventory/ui/gui/inventory_app.py`
+  - UI en Tkinter: lista “Vistos” (en vivo, con repetidos) + tabla de comparación al detener.
+- `rfid_inventory/ui/cli/inventory_mode.py`
+  - Misma idea que la GUI pero en terminal: imprime una línea por lectura; ENTER detiene.
+- `firmware/arduino_r200_emulator/r200_emulador/r200_emulador.ino`
+  - Emulador mínimo del protocolo del R200: responde a `multiple poll`, `stop` e `info`.
 
-- **D0 (RX)** ← TX del adaptador UART (o de la Raspberry, si conectas directo)
-- **D1 (TX)** → RX del adaptador UART / Raspberry
-- **GND** ↔ GND
+## Cómo funciona (explicación para presentar)
 
-**Importante**: usa niveles 3.3V si conectas a Raspberry (o un level shifter).
+1. **Conexión**
+   - La UI/CLI abre un puerto serial (COMx o `/dev/tty...`) a **115200**.
+2. **Lectura**
+   - El driver usa la librería `rfid-r200`, que envía un comando “multiple poll”.
+   - El emulador (Arduino) responde mandando varios frames “tag leído”, cada uno con:
+     - RSSI simulado
+     - EPC de 12 bytes (lo mostramos como hex en Python)
+3. **Escaneo en vivo**
+   - `Scanner` corre en un hilo y repite `read_tags_once()` muchas veces.
+   - Por cada tag que llega, dispara un callback:
+     - En GUI: se agrega una línea a “Vistos al escanear” (con repetidos).
+     - En CLI: se imprime una línea por lectura.
+4. **Detener y comparar**
+   - Al detener, se toma un `snapshot()` de EPC **únicos** y se compara contra “esperados”.
+   - La tabla de comparación muestra:
+     - **OK**: esperado y encontrado
+     - **FALTA**: esperado pero no encontrado
+     - **NUEVO**: encontrado pero no esperado
 
-## Simular gatillo (trigger) con un botón
+## Nota de uso (importante)
 
-El emulador puede hacer “stream” de tags mientras mantienes presionado un botón, sin necesidad de enviar `0x27/0x28`.
-
-- **Cableado**:
-  - Botón entre **D2** y **GND** del Nano.
-  - No necesitas resistencias externas (usa `INPUT_PULLUP`).
-- **Comportamiento**:
-  - **Presionado**: envía frames de tags (Type `0x02`, Command `0x22`) continuamente.
-  - **Suelto**: deja de enviar.
-- **Config**: en `firmware/arduino_r200_emulator/r200_emulador.ino`:
-  - `SIMULAR_GATILLO = true/false`
-  - `PIN_GATILLO = 2`
-
-## Cambiar tags simulados
-
-Edita `EPC_LIST` en `firmware/arduino_r200_emulator/r200_emulador.ino`. Cada EPC es de **12 bytes**.
-
+- Un puerto serial solo lo puede abrir **un programa a la vez**. Si estás usando Python, no tengas abierto el Monitor Serie de Arduino.

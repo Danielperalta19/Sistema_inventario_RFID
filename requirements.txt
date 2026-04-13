@@ -1,0 +1,2 @@
+rfid-r200
+pyserial
