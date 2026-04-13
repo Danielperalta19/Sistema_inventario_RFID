@@ -22,7 +22,7 @@ python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyUSB0
 python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyACM0 --seconds 30
 ```
 
-Dependencias: `requirements.txt`.
+Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). El código de la librería `rfid_r200` va **incluido** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`) para que en Raspberry Pi no dependas de un wheel roto de pip/piwheels.
 
 ## Estructura (lo esencial)
 

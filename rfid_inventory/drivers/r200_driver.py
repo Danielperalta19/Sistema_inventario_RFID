@@ -1,4 +1,12 @@
+import os
+import sys
 import time
+
+# Librería oficial embebida (vendor) para evitar fallos de pip/piwheels en Raspberry Pi.
+_vendor_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vendor"))
+if os.path.isdir(os.path.join(_vendor_root, "rfid_r200")):
+    if _vendor_root not in sys.path:
+        sys.path.insert(0, _vendor_root)
 
 from rfid_r200 import R200
 
