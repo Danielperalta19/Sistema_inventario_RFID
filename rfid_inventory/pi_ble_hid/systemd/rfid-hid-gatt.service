@@ -12,8 +12,8 @@ After=multi-user.target
 
 [Service]
 Type=simple
-# 0 = sin límite de tiempo de arranque (systemd)
-TimeoutStartSec=0
+# Sin ExecStartPre aquí (btmgmt en pre colgaba ~90s). Bluetooth: rfid-hid-bt-up.sh
+TimeoutStartSec=3600
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
 ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
