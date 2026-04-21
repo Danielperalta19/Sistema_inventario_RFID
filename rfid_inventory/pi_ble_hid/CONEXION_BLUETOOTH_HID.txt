@@ -1,0 +1,86 @@
+================================================================================
+Conexión Raspberry Pi (HID BLE) ↔ Laptop Windows — Proceso que funcionó
+================================================================================
+
+Orden recomendado: primero preparar la Pi, luego el script HID, después emparejar
+desde Windows. Si Windows pide confirmación en la Pi, usa acceso remoto / pantalla
+compartida para ver el código y aceptar en la Raspberry.
+
+--------------------------------------------------------------------------------
+1) Terminal en la Raspberry Pi — reiniciar Bluetooth
+--------------------------------------------------------------------------------
+
+    sudo systemctl restart bluetooth
+
+(Espera unos segundos antes de seguir.)
+
+--------------------------------------------------------------------------------
+2) Terminal en la Pi — encender y hacer visible el adaptador
+--------------------------------------------------------------------------------
+
+    sudo bluetoothctl power on
+    sudo bluetoothctl pairable on
+    sudo bluetoothctl discoverable on
+
+--------------------------------------------------------------------------------
+3) Terminal en la Pi — conectable y publicidad LE
+--------------------------------------------------------------------------------
+
+    sudo btmgmt -i hci0 connectable on
+    sudo btmgmt -i hci0 advertising on
+
+(Opcional: comprobar estado)
+
+    sudo btmgmt -i hci0 info
+
+--------------------------------------------------------------------------------
+4) Terminal en la Pi — arrancar el servidor HID (y RFID si aplica)
+--------------------------------------------------------------------------------
+
+    cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+
+    # Si usas lector/emulador por serie:
+    export RFID_PORT=/dev/ttyUSB0
+    export RFID_BAUD=115200
+
+    sudo -E python3 gatt_server_rfid.py
+
+Dejar esta terminal abierta. Debe aparecer algo como "GATT application registered".
+
+--------------------------------------------------------------------------------
+5) En la laptop (Windows) — Bluetooth LE Explorer
+--------------------------------------------------------------------------------
+
+- Abrir la aplicación "Bluetooth LE Explorer" (Microsoft Store).
+- Buscar el dispositivo de la pistola / Raspberry Pi.
+- Pulsar **Pair** (emparejar) cuando corresponda.
+
+--------------------------------------------------------------------------------
+6) Si la Pi pide código o confirmación de emparejamiento
+--------------------------------------------------------------------------------
+
+- Entrar en **modo screen share / acceso remoto** a la Raspberry (VNC, RustDesk,
+  AnyDesk, o monitor físico) para **ver y aceptar** el código o el diálogo de
+  conexión en la Pi.
+
+--------------------------------------------------------------------------------
+7) Listo
+--------------------------------------------------------------------------------
+
+- Con el HID registrado y el emparejamiento aceptado, puedes usar Bloc de notas
+  o la página web con foco en el campo de escaneo para probar teclas / EPC.
+
+--------------------------------------------------------------------------------
+Notas
+--------------------------------------------------------------------------------
+
+- Si más adelante "no quiere conectarse": en Windows, olvidar el dispositivo;
+  en la Pi, opcionalmente `sudo bluetoothctl remove <MAC_de_la_laptop>`; repetir
+  desde el paso 1.
+- Clase de dispositivo teclado (si se configuró): `sudo hciconfig hci0 class 0x000540`
+  y/o servicio systemd `set-bluetooth-class.service` (ver PI_BLE_HID.txt).
+- En `/etc/bluetooth/main.conf` puede usarse `Experimental = true` para BLE/GATT.
+
+================================================================================
+Última actualización: proceso documentado por el usuario (flujo validado).
+================================================================================

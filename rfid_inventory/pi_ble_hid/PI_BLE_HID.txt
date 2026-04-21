@@ -1,6 +1,13 @@
 Punto 1: HID BLE + RFID (Raspberry Pi)
 =====================================
 
+Emparejamiento Pi ↔ Windows (pasos y comandos que funcionaron):
+  → CONEXION_BLUETOOTH_HID.txt
+
+Arranque automático del HID al encender la Pi (systemd):
+  → AUTOSTART_HID.txt
+  → systemd/rfid-hid-gatt.service  (+ rfid-hid-gatt.default)
+
 Archivos:
 - gattServer_upstream.py  — original HeadHodge (referencia).
 - gatt_server_rfid.py     — sin demo M/volumen; send_text() + hilo opcional R200.

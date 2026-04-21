@@ -1,0 +1,6 @@
+# Copiar a: /etc/default/rfid-hid-gatt
+# Valores por defecto del servicio rfid-hid-gatt (descomenta o ajusta)
+
+RFID_PORT=/dev/ttyUSB0
+RFID_BAUD=115200
+RFID_DEBOUNCE_S=0.35

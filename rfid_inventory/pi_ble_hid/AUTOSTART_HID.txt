@@ -1,0 +1,71 @@
+================================================================================
+Autostart del HID en la Raspberry Pi (systemd)
+================================================================================
+
+Objetivo: al encender la pistola, sin abrir terminal, queden listos Bluetooth
+(descubrible / publicidad) y el proceso gatt_server_rfid.py.
+
+Archivos en esta carpeta:
+  systemd/rfid-hid-gatt.service   — unidad systemd
+  systemd/rfid-hid-gatt.default   — ejemplo para /etc/default/rfid-hid-gatt
+
+--------------------------------------------------------------------------------
+1) Editar rutas en el .service
+--------------------------------------------------------------------------------
+
+Reemplaza CHANGE_ME por tu usuario Linux en la Pi (ej. user, pi):
+
+  WorkingDirectory=/home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  ExecStart=/usr/bin/python3 /home/user/.../gatt_server_rfid.py
+
+Si el repo está en otra ruta, ajusta todo el path.
+
+--------------------------------------------------------------------------------
+2) Copiar en la Pi
+--------------------------------------------------------------------------------
+
+  sudo cp systemd/rfid-hid-gatt.service /etc/systemd/system/
+  sudo cp systemd/rfid-hid-gatt.default /etc/default/rfid-hid-gatt
+
+  sudo nano /etc/default/rfid-hid-gatt
+    # RFID_PORT=/dev/ttyUSB0  (o el puerto real del lector/emulador)
+    # RFID_BAUD=115200
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-gatt.service
+  sudo systemctl start rfid-hid-gatt.service
+
+--------------------------------------------------------------------------------
+3) Comprobar
+--------------------------------------------------------------------------------
+
+  sudo systemctl status rfid-hid-gatt.service
+  journalctl -u rfid-hid-gatt.service -f
+
+Debería verse "GATT application registered" y, si hay RFID_PORT, "RFID worker started".
+
+--------------------------------------------------------------------------------
+4) Si ya tienes set-bluetooth-class.service
+--------------------------------------------------------------------------------
+
+No hay conflicto: el HID arranca después de bluetooth.service. La clase
+0x000540 (teclado) puede seguir en tu otro servicio.
+
+--------------------------------------------------------------------------------
+5) Parar el modo manual
+--------------------------------------------------------------------------------
+
+Si antes lanzabas gatt_server_rfid.py a mano, no lo ejecutes dos veces:
+
+  sudo systemctl stop rfid-hid-gatt.service   # para probar a mano
+  sudo systemctl start rfid-hid-gatt.service  # volver a autostart
+
+--------------------------------------------------------------------------------
+6) Windows en el día a día
+--------------------------------------------------------------------------------
+
+Con el servicio activo, al prender la Pi solo esperas unos segundos y en la
+laptop suele bastar "Conectar" al dispositivo ya emparejado (sin repetir LE
+Explorer cada vez).
+
+================================================================================
