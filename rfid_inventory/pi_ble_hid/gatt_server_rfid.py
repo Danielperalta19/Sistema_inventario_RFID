@@ -19,10 +19,12 @@ try:
   from gi.repository import GObject
 except ImportError:
   import gobject as GObject
+import importlib.util
 import os
 import sys
 import threading
 import time
+import types
 
 from hid_keys import iter_hid_keys_for_text
 
@@ -828,15 +830,42 @@ def _schedule_send_text(text):
     GObject.idle_add(_run)
 
 
+def _load_r200_class(_rf_pkg_dir):
+    """
+    Load only the sync R200 driver without importing rfid_r200/__init__.py
+    (avoids pulling R200Async -> serial_asyncio on minimal Pi installs).
+    """
+    if "rfid_r200" not in sys.modules:
+        pkg = types.ModuleType("rfid_r200")
+        pkg.__path__ = [_rf_pkg_dir]
+        sys.modules["rfid_r200"] = pkg
+
+    def _load(name, fname):
+        fq = f"rfid_r200.{name}"
+        path = os.path.join(_rf_pkg_dir, fname)
+        spec = importlib.util.spec_from_file_location(fq, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[fq] = mod
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        return mod
+
+    _load("constants", "constants.py")
+    _load("exceptions", "exceptions.py")
+    _load("utils", "utils.py")
+    sync = _load("rfid_reader_sync", "rfid_reader_sync.py")
+    return sync.R200
+
+
 def _rfid_worker_loop(port, baud, debounce_s):
     _root = os.path.dirname(os.path.abspath(__file__))
     _vendor = os.path.join(_root, "..", "vendor")
-    if os.path.isdir(_vendor):
-        _vp = os.path.abspath(_vendor)
-        if _vp not in sys.path:
-            sys.path.insert(0, _vp)
+    _rf_dir = os.path.abspath(os.path.join(_vendor, "rfid_r200"))
+    if not os.path.isdir(_rf_dir):
+        print(f"RFID vendor not found: {_rf_dir}")
+        return
 
-    from rfid_r200 import R200
+    R200 = _load_r200_class(_rf_dir)
 
     r = R200(port, baud, debug=False)
     time.sleep(1.5)

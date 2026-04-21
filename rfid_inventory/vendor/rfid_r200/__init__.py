@@ -34,10 +34,18 @@ from .exceptions import R200CommunicationError
 from .exceptions import R200Error
 from .exceptions import R200ParseError
 from .exceptions import R200TimeoutError
-from .rfid_reader_async import R200Async
 from .rfid_reader_sync import R200
 from .utils import R200PoolResponse
 from .utils import R200Response
+
+
+def __getattr__(name):
+    if name == "R200Async":
+        from .rfid_reader_async import R200Async
+
+        return R200Async
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     # Version
