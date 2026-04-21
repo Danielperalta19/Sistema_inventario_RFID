@@ -1,10 +1,9 @@
 # Instalación: copiar a /etc/systemd/system/rfid-hid-gatt.service
-# y editar CHANGE_ME por tu usuario y ruta del repo.
+# Sustituir CHANGE_ME por tu usuario Linux.
 #
-#   sudo cp rfid-hid-gatt.service /etc/systemd/system/
-#   sudo nano /etc/systemd/system/rfid-hid-gatt.service
-#   sudo systemctl daemon-reload
-#   sudo systemctl restart rfid-hid-gatt.service
+# Bluetooth (discoverable / advertising) NO va aquí para evitar timeouts de systemd.
+# Tras el arranque, ejecuta una vez (o ponlo en cron @reboot):
+#   rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
 
 [Unit]
 Description=BLE HID keyboard (gatt_server_rfid) for RFID pistol
@@ -13,19 +12,9 @@ Wants=bluetooth.service
 
 [Service]
 Type=simple
-# Sin límite de tiempo de arranque (btmgmt/bluetoothctl no deben bloquear para siempre)
-TimeoutStartSec=0
+TimeoutStartSec=120
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
-# Esperar a bluetoothd; cada comando con timeout para no colgar systemd
-ExecStartPre=/bin/sh -c '\
-  sleep 5; \
-  timeout 8 /usr/bin/bluetoothctl power on 2>/dev/null || true; \
-  timeout 8 /usr/bin/bluetoothctl pairable on 2>/dev/null || true; \
-  timeout 8 /usr/bin/bluetoothctl discoverable on 2>/dev/null || true; \
-  timeout 8 /usr/bin/btmgmt -i hci0 connectable on 2>/dev/null || true; \
-  timeout 8 /usr/bin/btmgmt -i hci0 advertising on 2>/dev/null || true; \
-  exit 0'
 ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
 Restart=on-failure
 RestartSec=5
