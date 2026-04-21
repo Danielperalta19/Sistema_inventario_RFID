@@ -1,30 +1,25 @@
 #!/bin/sh
-# Deja el adaptador visible y con anuncio LE. Journal: journalctl -t rfid-hid-bt-up -b
+# Deja el adaptador visible y anuncia LE. Journal: journalctl -t rfid-hid-bt-up -b
+#
+# En varias RPi+BlueZ, "btmgmt connectable|advertising on" bloquea (no vuelve) y
+# con timeout 15 s sale 124; la publicidad estable se logra con bluetoothctl.
 
 jlog() { systemd-cat -t rfid-hid-bt-up -p info; }
 
-echo "start" | jlog
-sleep 3
+# Si rfid-hid-bt-up y -post se disparan a la vez, encolar (evita logs mezclados)
+{
+  flock -w 200 8 || { echo "flock: imposible tomar lock" | jlog; exit 0; }
 
-timeout 8 bluetoothctl power on 2>&1 | jlog || true
-timeout 8 bluetoothctl pairable on 2>&1 | jlog || true
-timeout 8 bluetoothctl discoverable on 2>&1 | jlog || true
+  echo "start" | jlog
+  sleep 3
 
-# btmgmt: salida y codigo reales (sin silenciar stderr)
-_run_btmgmt() {
-  _a="$1"
-  _f="/tmp/rfid-bt-$$.log"
-  timeout 15 btmgmt -i hci0 "$_a" >"$_f" 2>&1
-  _e=$?
-  if [ -s "$_f" ]; then cat "$_f" | jlog; else echo "(sin salida)" | jlog; fi
-  echo "btmgmt $_a -> exit $_e" | jlog
-  rm -f "$_f"
-}
+  timeout 8 bluetoothctl power on 2>&1 | jlog || true
+  timeout 8 bluetoothctl pairable on 2>&1 | jlog || true
+  timeout 8 bluetoothctl discoverable on 2>&1 | jlog || true
 
-_run_btmgmt "connectable on"
-_run_btmgmt "advertising on"
+  # Anuncio LE (en tu Pi esto reemplaza a btmgmt advertising sin colgarse)
+  timeout 45 bluetoothctl advertise on 2>&1 | jlog || true
 
-timeout 5 bluetoothctl advertise on 2>&1 | jlog || true
-
-echo "end" | jlog
-exit 0
+  echo "end" | jlog
+  exit 0
+} 8>/run/lock/rfid-hid-bt-up.lock
