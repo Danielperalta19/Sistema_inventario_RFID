@@ -14,7 +14,8 @@ Wants=rfid-hid-gatt.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/bin/sleep 25
+# Tras levantar GATT, BlueZ a veces tarda; 40 s deja el segundo bt-up con más margen
+ExecStartPre=/bin/sleep 40
 ExecStart=/bin/bash /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
 TimeoutStartSec=120
 
