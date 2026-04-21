@@ -5,8 +5,8 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from rfid_inventory.app import Scanner
-from rfid_inventory.domain import compare_expected_found
-from rfid_inventory.drivers import R200Driver, TagRead
+from rfid_inventory.app.inventory_service import InventoryService
+from rfid_inventory.drivers import R200Driver
 
 
 def _mock_locations():
@@ -28,9 +28,18 @@ class InventoryApp(tk.Tk):
         self.title("Inventario RFID")
         self.geometry("880x520")
 
+        self._scan_started_ms = None
+        self._scan_timer_job = None
+        self._expected_set = set()
+        self._tree_expected_items = {}
+        self._tree_new_items = {}
+
         self._driver = R200Driver()
         self._scanner = Scanner(self._driver)
         self._locations = _mock_locations()
+        self._inventory = InventoryService(self._locations, self._scanner)
+
+        self._init_style()
 
         top = tk.Frame(self)
         top.pack(fill="x", padx=10, pady=8)
@@ -104,15 +113,41 @@ class InventoryApp(tk.Tk):
         self.tree.column("epc", width=300, anchor="w")
         self.tree.column("rssi", width=55, anchor="center")
         self.tree.pack(fill="both", expand=True, pady=4)
+        # Esquema compatible con el inventario actual:
+        # - Rojo: esperado pero aún no encontrado (NO ESCANEADO)
+        # - Sin color: encontrado
+        # - Amarillo: leído pero no esperado (ACTIVO NUEVO)
+        self.tree.tag_configure("missing", background="#FDECEC")
+        self.tree.tag_configure("new", background="#FFF6D6")
 
         self.summary_var = tk.StringVar(value="")
         tk.Label(right, textvariable=self.summary_var, anchor="w", justify="left").pack(fill="x")
+
+        legend = tk.Frame(right)
+        legend.pack(fill="x", pady=(2, 0))
+        self._legend_chip(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 6))
+        self._legend_chip(legend, "NO ESCANEADO", "#FDECEC").pack(side="left", padx=(0, 6))
+        self._legend_chip(legend, "ACTIVO NUEVO", "#FFF6D6").pack(side="left")
 
         self.status_var = tk.StringVar(value="Conecta el puerto y elige ubicación.")
         tk.Label(self, textvariable=self.status_var, anchor="w").pack(fill="x", padx=10, pady=(0, 8))
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._refresh_expected_summary()
+
+    def _init_style(self):
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("Treeview", rowheight=22)
+        style.configure("Treeview.Heading", font=("", 10, "bold"))
+
+    def _legend_chip(self, parent, text, bg):
+        f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
+        tk.Label(f, text=text, bg=bg, padx=6, pady=2).pack()
+        return f
 
     def connect(self):
         if self._driver.connected:
@@ -150,17 +185,62 @@ class InventoryApp(tk.Tk):
         self.listbox.delete(0, tk.END)
         for item in self.tree.get_children():
             self.tree.delete(item)
+        self._tree_expected_items = {}
+        self._tree_new_items = {}
+        loc = self.location_var.get()
+        self._expected_set = self._inventory.get_expected_set(loc)
+        # Precargar esperados como "NO ESCANEADO" (rojo suave)
+        for epc in sorted(list(self._expected_set)):
+            iid = self.tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""), tags=("missing",))
+            self._tree_expected_items[epc] = iid
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="normal")
-        self.status_var.set("Escaneando… presiona Detener para terminar de escanear.")
+        self._scan_started_ms = self.winfo_fpixels("1i")  # dummy init to avoid None in some tk builds
+        self._scan_started_ms = int(self.tk.call("clock", "milliseconds"))
+        self._start_scan_timer()
+        self.status_var.set("Escaneando… (en vivo). Pulsa Detener para comparar.")
         self._scanner.start(on_tag_read=self._on_tag_read)
 
     def stop_scan(self):
         self._scanner.stop()
+        self._stop_scan_timer()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="normal")
         self._compare_and_show()
         self.status_var.set("Listo.")
+
+    def _start_scan_timer(self):
+        self._stop_scan_timer()
+
+        def tick():
+            if not self._scanner.is_running():
+                return
+            now_ms = int(self.tk.call("clock", "milliseconds"))
+            elapsed_s = 0.0
+            if self._scan_started_ms is not None:
+                elapsed_s = max(0.0, (now_ms - self._scan_started_ms) / 1000.0)
+            snap = self._scanner.snapshot()
+            uniques = len(snap["seen_epcs"])
+            self.summary_var.set(
+                "{0}: {1} esperados | {2} únicos leídos | tiempo {3:.1f}s".format(
+                    self.location_var.get(),
+                    self._inventory.expected_count(self.location_var.get()),
+                    uniques,
+                    elapsed_s,
+                )
+            )
+            self._scan_timer_job = self.after(250, tick)
+
+        self._scan_timer_job = self.after(250, tick)
+
+    def _stop_scan_timer(self):
+        if self._scan_timer_job is not None:
+            try:
+                self.after_cancel(self._scan_timer_job)
+            except Exception:
+                pass
+        self._scan_timer_job = None
+        self._scan_started_ms = None
 
     def _on_tag_read(self, tag, idx_in_batch):
         # idx_in_batch: separar visualmente lecturas que llegan en el mismo bloque
@@ -170,27 +250,52 @@ class InventoryApp(tk.Tk):
         def append():
             self.listbox.insert(tk.END, line)
             self.listbox.see(tk.END)
+            self._update_tree_live(tag)
 
         if delay_ms <= 0:
             self.after(0, append)
         else:
             self.after(delay_ms, append)
 
+    def _update_tree_live(self, tag):
+        epc = tag.epc_hex
+        # Si es esperado: marcar como encontrado (sin color / neutral)
+        if epc in self._expected_set:
+            iid = self._tree_expected_items.get(epc)
+            if iid is not None:
+                try:
+                    self.tree.item(
+                        iid,
+                        values=("ENCONTRADO", epc, tag.rssi),
+                        tags=(),
+                    )
+                except Exception:
+                    pass
+            return
+
+        # Si no es esperado: insertar/actualizar como nuevo (amarillo)
+        iid_new = self._tree_new_items.get(epc)
+        if iid_new is None:
+            iid_new = self.tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+            self._tree_new_items[epc] = iid_new
+        else:
+            try:
+                self.tree.item(iid_new, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+            except Exception:
+                pass
+
     def _compare_and_show(self):
         loc = self.location_var.get()
-        expected = set(self._locations.get(loc, []))
-        snap = self._scanner.snapshot()
-        found = set(snap["seen_epcs"])
-        r = compare_expected_found(expected, found)
+        r, snap, expected = self._inventory.compare_location(loc)
 
         for item in self.tree.get_children():
             self.tree.delete(item)
         for epc in r.encontrados:
             self.tree.insert("", tk.END, values=("ENCONTRADO", epc, snap["last_rssi"].get(epc, "")))
         for epc in r.faltantes:
-            self.tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""))
+            self.tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""), tags=("missing",))
         for epc in r.nuevos:
-            self.tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, snap["last_rssi"].get(epc, "")))
+            self.tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, snap["last_rssi"].get(epc, "")), tags=("new",))
 
         self.summary_var.set(
             f"{loc}: esperados {len(expected)} | ok {len(r.encontrados)} | "

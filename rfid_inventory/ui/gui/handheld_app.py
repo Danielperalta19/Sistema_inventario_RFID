@@ -1,0 +1,747 @@
+"""Inventario RFID para pantalla pequeña (p. ej. Waveshare 480x320).
+
+Flujo: Inicio (conexión) -> Ubicación -> pantalla de inventario (Iniciar/Detener pistoleo) -> Resultado -> Detalle opcional.
+"""
+
+import tkinter as tk
+from tkinter import messagebox
+from tkinter import ttk
+
+from rfid_inventory.app import Scanner
+from rfid_inventory.app.inventory_service import InventoryService
+from rfid_inventory.drivers import R200Driver
+
+
+def _mock_locations_nested():
+    """edificio -> sala/lab/cubiculo -> lista de EPC (hex), alineados con el emulador."""
+    pairs = [
+        ("Edificio Central", "Lab A-101"),
+        ("Edificio Central", "Lab A-102"),
+        ("Edificio Norte", "Cubículo 301"),
+        ("Edificio Norte", "Sala B"),
+    ]
+    out = {}
+    for idx, (edif, sala) in enumerate(pairs):
+        if edif not in out:
+            out[edif] = {}
+        epcs = []
+        for j in range(3):
+            n = 750100000000 + idx * 3 + j
+            digits = f"{n:012d}"
+            epcs.append(digits.encode("ascii").hex())
+        out[edif][sala] = epcs
+    return out
+
+
+def _flatten_locations(nested):
+    flat = {}
+    for edif, rooms in nested.items():
+        for sala, epcs in rooms.items():
+            flat[_location_label(edif, sala)] = epcs
+    return flat
+
+
+def _location_label(edificio, sala):
+    return "{0} · {1}".format(edificio, sala)
+
+
+class HandheldApp(tk.Tk):
+    _LOG_MAX_LINES = 4
+
+    def __init__(self):
+        super().__init__()
+        self.title("Inventario RFID")
+        self.geometry("480x320")
+        self.minsize(480, 320)
+
+        self._scan_started_ms = None
+        self._scan_timer_job = None
+        self._pistol_start_job = None
+        self._expected_set = set()
+        self._recent_log = []
+        self._tree_expected_items = {}
+        self._tree_new_items = {}
+
+        self._result_location = ""
+        self._result_rows = []
+        self._last_snap = None
+        self._filter_mode = tk.StringVar(value="todos")
+
+        self._driver = R200Driver()
+        self._scanner = Scanner(self._driver)
+        self._nested_locations = _mock_locations_nested()
+        self._locations = _flatten_locations(self._nested_locations)
+        self._inventory = InventoryService(self._locations, self._scanner)
+
+        self._init_style()
+
+        self.container = tk.Frame(self)
+        self.container.pack(fill="both", expand=True)
+
+        self._frame_home = None
+        self._frame_setup = None
+        self._frame_scan = None
+        self._frame_result = None
+        self._frame_detail = None
+
+        self._build_home()
+        self._build_setup()
+        self._build_scan()
+        self._build_result()
+        self._build_detail()
+
+        self._show_frame("home")
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _location_key(self):
+        return _location_label(self.building_var.get(), self.room_var.get())
+
+    def _init_style(self):
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("Treeview", rowheight=20)
+        style.configure("Treeview.Heading", font=("", 9, "bold"))
+        style.configure("Handheld.TButton", font=("", 11))
+        style.configure("HandheldBig.TButton", font=("", 13))
+
+    def _show_frame(self, name):
+        for w in self.container.winfo_children():
+            w.pack_forget()
+        if name == "home":
+            self._frame_home.pack(fill="both", expand=True)
+        elif name == "setup":
+            self._frame_setup.pack(fill="both", expand=True)
+        elif name == "scan":
+            self._frame_scan.pack(fill="both", expand=True)
+        elif name == "result":
+            self._frame_result.pack(fill="both", expand=True)
+        elif name == "detail":
+            self._frame_detail.pack(fill="both", expand=True)
+
+    def _build_home(self):
+        self._frame_home = tk.Frame(self.container)
+
+        tk.Label(
+            self._frame_home,
+            text="Inventario RFID",
+            font=("", 17, "bold"),
+        ).pack(pady=(16, 6))
+
+        tk.Label(
+            self._frame_home,
+            text="Conecta el lector para continuar",
+            font=("", 10),
+            wraplength=440,
+            justify="center",
+        ).pack(pady=(0, 12))
+
+        row = tk.Frame(self._frame_home)
+        row.pack(fill="x", padx=14, pady=4)
+
+        tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
+        self.port_var = tk.StringVar(value="COM5")
+        tk.Entry(row, textvariable=self.port_var, width=14, font=("", 10)).pack(side="left", padx=(4, 10))
+
+        tk.Label(row, text="Baud:", font=("", 10)).pack(side="left")
+        self.baud_var = tk.StringVar(value="115200")
+        tk.Entry(row, textvariable=self.baud_var, width=7, font=("", 10)).pack(side="left", padx=(4, 10))
+
+        self.btn_connect = ttk.Button(row, text="Conectar", command=self.connect, style="Handheld.TButton")
+        self.btn_connect.pack(side="left", padx=6)
+
+        self.home_status_var = tk.StringVar(value="Lector: desconectado")
+        tk.Label(self._frame_home, textvariable=self.home_status_var, font=("", 9), wraplength=440, justify="center").pack(
+            fill="x", padx=12, pady=(8, 12)
+        )
+
+        self.btn_continue = ttk.Button(
+            self._frame_home,
+            text="Continuar",
+            style="HandheldBig.TButton",
+            command=lambda: self._show_frame("setup"),
+            state="disabled",
+        )
+        self.btn_continue.pack(pady=8, ipadx=20, ipady=8)
+
+    def _build_setup(self):
+        self._frame_setup = tk.Frame(self.container)
+
+        tk.Label(self._frame_setup, text="Ubicación del inventario", font=("", 12, "bold")).pack(
+            anchor="w", padx=12, pady=(12, 8)
+        )
+
+        row_b = tk.Frame(self._frame_setup)
+        row_b.pack(fill="x", padx=12, pady=4)
+        tk.Label(row_b, text="Edificio:", font=("", 10)).pack(anchor="w")
+        buildings = sorted(list(self._nested_locations.keys()))
+        self.building_var = tk.StringVar(value=buildings[0])
+        self.building_combo = ttk.Combobox(
+            row_b,
+            textvariable=self.building_var,
+            values=buildings,
+            state="readonly",
+            width=32,
+            font=("", 10),
+        )
+        self.building_combo.pack(fill="x", pady=(2, 0))
+
+        row_r = tk.Frame(self._frame_setup)
+        row_r.pack(fill="x", padx=12, pady=8)
+        tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
+        self.room_var = tk.StringVar()
+        first_rooms = sorted(list(self._nested_locations[buildings[0]].keys()))
+        self.room_var.set(first_rooms[0])
+        self.room_combo = ttk.Combobox(
+            row_r,
+            textvariable=self.room_var,
+            values=first_rooms,
+            state="readonly",
+            width=32,
+            font=("", 10),
+        )
+        self.room_combo.pack(fill="x", pady=(2, 0))
+
+        self.building_combo.bind("<<ComboboxSelected>>", self._on_building_selected)
+        self.room_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_setup_hint())
+
+        self.setup_hint_var = tk.StringVar(value="")
+        tk.Label(self._frame_setup, textvariable=self.setup_hint_var, font=("", 9), fg="#444", wraplength=440).pack(
+            fill="x", padx=12, pady=(4, 8)
+        )
+        self._refresh_setup_hint()
+
+        row_btns = tk.Frame(self._frame_setup)
+        row_btns.pack(fill="x", side="bottom", pady=12)
+
+        ttk.Button(
+            row_btns,
+            text="Atrás",
+            style="Handheld.TButton",
+            command=lambda: self._show_frame("home"),
+        ).pack(side="left", padx=8)
+
+        self.btn_to_scan = ttk.Button(
+            row_btns,
+            text="Siguiente",
+            style="HandheldBig.TButton",
+            command=self.go_to_scan_screen,
+        )
+        self.btn_to_scan.pack(side="right", padx=8, ipadx=8, ipady=4)
+
+    def _refresh_setup_hint(self):
+        self.setup_hint_var.set("Selección: {0}".format(self._location_key()))
+
+    def _on_building_selected(self, event=None):
+        ed = self.building_var.get()
+        rooms = sorted(list(self._nested_locations.get(ed, {}).keys()))
+        self.room_combo["values"] = rooms
+        if rooms:
+            self.room_var.set(rooms[0])
+        self._refresh_setup_hint()
+
+    def _build_scan(self):
+        self._frame_scan = tk.Frame(self.container)
+
+        top = tk.Frame(self._frame_scan)
+        top.pack(fill="x", padx=10, pady=(6, 2))
+
+        self.scan_line_location = tk.StringVar(value="Ubicación: —")
+        self.scan_line_time = tk.StringVar(value="Tiempo: 0.0 s")
+        self.scan_line_counts = tk.StringVar(value="Esperados: 0 | Leídos únicos: 0")
+
+        tk.Label(top, textvariable=self.scan_line_location, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(top, textvariable=self.scan_line_time, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(top, textvariable=self.scan_line_counts, font=("", 9), anchor="w").pack(fill="x")
+
+        mid = tk.Frame(self._frame_scan)
+        mid.pack(fill="both", expand=True, padx=8, pady=4)
+
+        tk.Label(mid, text="Activos (esperados en esta ubicación)", font=("", 9), fg="#444").pack(anchor="w")
+
+        tree_wrap = tk.Frame(mid)
+        tree_wrap.pack(fill="both", expand=True, pady=(2, 4))
+
+        self.scan_tree = ttk.Treeview(
+            tree_wrap,
+            columns=("status", "epc", "rssi"),
+            show="headings",
+            height=5,
+        )
+        self.scan_tree.heading("status", text="Estado")
+        self.scan_tree.heading("epc", text="EPC")
+        self.scan_tree.heading("rssi", text="RSSI")
+        self.scan_tree.column("status", width=88, anchor="center")
+        self.scan_tree.column("epc", width=250, anchor="w")
+        self.scan_tree.column("rssi", width=48, anchor="center")
+        vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.scan_tree.yview)
+        self.scan_tree.configure(yscrollcommand=vsb_s.set)
+        self.scan_tree.pack(side="left", fill="both", expand=True)
+        vsb_s.pack(side="right", fill="y")
+
+        self.scan_tree.tag_configure("found", background="#F4F4F4")
+        self.scan_tree.tag_configure("missing", background="#FDECEC")
+        self.scan_tree.tag_configure("new", background="#FFF6D6")
+
+        tk.Label(
+            self._frame_scan,
+            text="Últimas lecturas (log)",
+            font=("", 8),
+            fg="#444",
+        ).pack(anchor="w", padx=10, pady=(0, 0))
+
+        self.listbox = tk.Listbox(self._frame_scan, height=self._LOG_MAX_LINES, font=("Consolas", 8))
+        self.listbox.pack(fill="x", padx=10, pady=4)
+
+        row_pistol = tk.Frame(self._frame_scan)
+        row_pistol.pack(fill="x", side="bottom", pady=(4, 4))
+
+        self.btn_begin_pistol = tk.Button(
+            row_pistol,
+            text="Iniciar pistoleo",
+            font=("", 12, "bold"),
+            bg="#2E7D32",
+            fg="white",
+            activebackground="#1B5E20",
+            activeforeground="white",
+            relief="flat",
+            command=self.begin_pistol_scan,
+        )
+        self.btn_begin_pistol.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=10)
+
+        self.btn_stop = tk.Button(
+            row_pistol,
+            text="Detener",
+            font=("", 12, "bold"),
+            bg="#C62828",
+            fg="white",
+            activebackground="#B71C1C",
+            activeforeground="white",
+            relief="flat",
+            command=self.stop_scan,
+        )
+        self.btn_stop.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=10)
+
+        row = tk.Frame(self._frame_scan)
+        row.pack(fill="x", side="bottom", pady=(0, 8))
+
+        self.btn_pause = ttk.Button(
+            row,
+            text="Pausar",
+            style="Handheld.TButton",
+            command=self._toggle_pause,
+        )
+        self.btn_pause.pack(side="left", padx=(10, 4), ipadx=4, ipady=4)
+
+        self.btn_cancel_scan = ttk.Button(
+            row,
+            text="Cancelar",
+            style="Handheld.TButton",
+            command=self.cancel_scan,
+        )
+        self.btn_cancel_scan.pack(side="left", padx=4, ipadx=4, ipady=4)
+
+        self._set_scan_controls_reading(False)
+
+    def _build_result(self):
+        self._frame_result = tk.Frame(self.container)
+
+        head = tk.Frame(self._frame_result)
+        head.pack(fill="x", padx=10, pady=(8, 4))
+
+        self.result_line_location = tk.StringVar(value="Ubicación: —")
+        self.result_line_stats = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
+
+        tk.Label(head, textvariable=self.result_line_location, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.result_line_stats, font=("", 10), anchor="w").pack(fill="x")
+
+        filt = tk.Frame(self._frame_result)
+        filt.pack(fill="x", padx=8, pady=(2, 4))
+
+        tk.Label(filt, text="Ver:", font=("", 9)).pack(side="left", padx=(0, 6))
+        for val, label in (("todos", "Todos"), ("faltantes", "Solo faltantes"), ("nuevos", "Solo nuevos")):
+            ttk.Radiobutton(
+                filt,
+                text=label,
+                value=val,
+                variable=self._filter_mode,
+                command=self._on_filter_change,
+            ).pack(side="left", padx=2)
+
+        tree_frame = tk.Frame(self._frame_result)
+        tree_frame.pack(fill="both", expand=True, padx=8, pady=4)
+
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=("status", "epc", "rssi"),
+            show="headings",
+            height=7,
+        )
+        self.tree.heading("status", text="Estado")
+        self.tree.heading("epc", text="EPC")
+        self.tree.heading("rssi", text="RSSI")
+        self.tree.column("status", width=96, anchor="center")
+        self.tree.column("epc", width=270, anchor="w")
+        self.tree.column("rssi", width=52, anchor="center")
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        self.tree.tag_configure("found", background="#F4F4F4")
+        self.tree.tag_configure("missing", background="#FDECEC")
+        self.tree.tag_configure("new", background="#FFF6D6")
+
+        self.tree.bind("<Double-1>", self._on_result_double_click)
+
+        legend = tk.Frame(self._frame_result)
+        legend.pack(fill="x", padx=8)
+        self._legend_chip(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
+        self._legend_chip(legend, "NO ESCANEADO", "#FDECEC").pack(side="left", padx=(0, 4))
+        self._legend_chip(legend, "ACTIVO NUEVO", "#FFF6D6").pack(side="left")
+
+        row = tk.Frame(self._frame_result)
+        row.pack(fill="x", pady=(6, 10))
+
+        ttk.Button(row, text="Nuevo escaneo", style="HandheldBig.TButton", command=self._result_new_scan).pack(
+            fill="x", padx=12, ipadx=8, ipady=4
+        )
+
+    def _build_detail(self):
+        self._frame_detail = tk.Frame(self.container)
+
+        tk.Label(self._frame_detail, text="Detalle de activo", font=("", 12, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
+
+        box = tk.Frame(self._frame_detail)
+        box.pack(fill="both", expand=True, padx=12)
+
+        self.detail_epc_var = tk.StringVar(value="")
+        self.detail_status_var = tk.StringVar(value="")
+        self.detail_loc_var = tk.StringVar(value="")
+        self.detail_rssi_var = tk.StringVar(value="")
+
+        def line(lbl, var):
+            r = tk.Frame(box)
+            r.pack(fill="x", pady=4)
+            tk.Label(r, text=lbl, font=("", 9), width=18, anchor="w").pack(side="left")
+            tk.Label(r, textvariable=var, font=("", 9), wraplength=320, justify="left", anchor="w").pack(side="left")
+
+        line("EPC:", self.detail_epc_var)
+        line("Estado:", self.detail_status_var)
+        line("Ubicación esperada:", self.detail_loc_var)
+        line("Última RSSI:", self.detail_rssi_var)
+
+        ttk.Button(
+            self._frame_detail,
+            text="Volver",
+            style="HandheldBig.TButton",
+            command=lambda: self._show_frame("result"),
+        ).pack(side="bottom", pady=16, ipadx=16, ipady=6)
+
+    def _legend_chip(self, parent, text, bg):
+        f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
+        tk.Label(f, text=text, bg=bg, padx=4, pady=1, font=("", 8)).pack()
+        return f
+
+    def _on_filter_change(self):
+        self._apply_result_filter()
+
+    def _result_new_scan(self):
+        self._show_frame("setup")
+
+    def _toggle_pause(self):
+        if not self._scanner.is_running():
+            return
+        if self._scanner.is_paused():
+            self._scanner.resume()
+            self.btn_pause.config(text="Pausar")
+        else:
+            self._scanner.pause()
+            self.btn_pause.config(text="Reanudar")
+
+    def _set_scan_controls_reading(self, active):
+        """active=True: pistoleo en curso (Iniciar off, Detener/Pausar on). active=False: listo para iniciar."""
+        if active:
+            self.btn_begin_pistol.config(state="disabled")
+            self.btn_stop.config(state="normal")
+            self.btn_pause.config(state="normal", text="Pausar")
+            self.btn_cancel_scan.config(state="normal")
+        else:
+            self.btn_begin_pistol.config(state="normal")
+            self.btn_stop.config(state="disabled")
+            self.btn_pause.config(state="disabled", text="Pausar")
+
+    def _fill_scan_tree_and_header(self):
+        loc = self._location_key()
+        self._refresh_setup_hint()
+        self._expected_set = self._inventory.get_expected_set(loc)
+        self._tree_expected_items = {}
+        self._tree_new_items = {}
+        for item in self.scan_tree.get_children():
+            self.scan_tree.delete(item)
+        for epc in sorted(list(self._expected_set)):
+            iid = self.scan_tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""), tags=("missing",))
+            self._tree_expected_items[epc] = iid
+        self.scan_line_location.set("Ubicación: {0}".format(loc))
+        self.scan_line_time.set("Tiempo: 0.0 s")
+        self.scan_line_counts.set(
+            "Esperados: {0} | Leídos únicos: 0".format(self._inventory.expected_count(loc))
+        )
+
+    def go_to_scan_screen(self):
+        """Solo navega a la pantalla de inventario; no arranca el lector (evita el mismo clic como trigger)."""
+        self._cancel_pending_pistol_start()
+        self._scanner.resume()
+        self._scanner.stop()
+        self._stop_scan_timer()
+        self._recent_log = []
+        self.listbox.delete(0, tk.END)
+        self._fill_scan_tree_and_header()
+        self._set_scan_controls_reading(False)
+        self._show_frame("scan")
+
+    def begin_pistol_scan(self):
+        """Aquí sí arranca el escaneo continuo (simulación de pistoleo)."""
+        if self._scanner.is_running():
+            return
+        self._cancel_pending_pistol_start()
+        self._scanner.reset()
+        self._recent_log = []
+        self.listbox.delete(0, tk.END)
+        self._fill_scan_tree_and_header()
+        self._set_scan_controls_reading(True)
+        # Pequeño retraso: el clic del botón no debe solaparse con la primera lectura (trigger simulado).
+        self._pistol_start_job = self.after(120, self._start_pistol_thread)
+
+    def _cancel_pending_pistol_start(self):
+        if self._pistol_start_job is not None:
+            try:
+                self.after_cancel(self._pistol_start_job)
+            except Exception:
+                pass
+            self._pistol_start_job = None
+
+    def _start_pistol_thread(self):
+        self._pistol_start_job = None
+        if self._scanner.is_running():
+            return
+        self._scan_started_ms = int(self.tk.call("clock", "milliseconds"))
+        self._start_scan_timer()
+        self._scanner.resume()
+        self._scanner.start(on_tag_read=self._on_tag_read)
+
+    def connect(self):
+        if self._driver.connected:
+            messagebox.showinfo("Info", "Ya conectado.")
+            self.btn_continue.config(state="normal")
+            self.home_status_var.set("Lector: conectado")
+            return
+        port = self.port_var.get().strip()
+        port_l = port.lower()
+        if port_l.startswith("/dev/ttyusb"):
+            port = "/dev/ttyUSB" + port[len("/dev/ttyusb") :]
+        elif port_l.startswith("/dev/ttyacm"):
+            port = "/dev/ttyACM" + port[len("/dev/ttyacm") :]
+        if not port:
+            messagebox.showerror("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
+            return
+        try:
+            baud = int(self.baud_var.get().strip())
+        except ValueError:
+            messagebox.showerror("Error", "Baud inválido.")
+            return
+        try:
+            self._driver.connect(port, baud, debug=False)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+        self.home_status_var.set("Lector: conectado ({0} @ {1})".format(port, baud))
+        self.btn_connect.config(state="disabled")
+        self.btn_continue.config(state="normal")
+
+    def stop_scan(self):
+        self._cancel_pending_pistol_start()
+        self._scanner.resume()
+        self._scanner.stop()
+        self._stop_scan_timer()
+        self._set_scan_controls_reading(False)
+        self._compare_and_show()
+        self._show_frame("result")
+
+    def cancel_scan(self):
+        self._cancel_pending_pistol_start()
+        self._scanner.resume()
+        self._scanner.stop()
+        self._stop_scan_timer()
+        self._set_scan_controls_reading(False)
+        self._show_frame("setup")
+
+    def _start_scan_timer(self):
+        self._stop_scan_timer()
+
+        def tick():
+            if not self._scanner.is_running():
+                return
+            now_ms = int(self.tk.call("clock", "milliseconds"))
+            elapsed_s = 0.0
+            if self._scan_started_ms is not None:
+                elapsed_s = max(0.0, (now_ms - self._scan_started_ms) / 1000.0)
+            loc = self._location_key()
+            snap = self._scanner.snapshot()
+            uniques = len(snap["seen_epcs"])
+            self.scan_line_location.set("Ubicación: {0}".format(loc))
+            self.scan_line_time.set("Tiempo: {0:.1f} s".format(elapsed_s))
+            self.scan_line_counts.set(
+                "Esperados: {0} | Leídos únicos: {1}".format(self._inventory.expected_count(loc), uniques)
+            )
+            self._scan_timer_job = self.after(250, tick)
+
+        self._scan_timer_job = self.after(250, tick)
+
+    def _stop_scan_timer(self):
+        if self._scan_timer_job is not None:
+            try:
+                self.after_cancel(self._scan_timer_job)
+            except Exception:
+                pass
+        self._scan_timer_job = None
+        self._scan_started_ms = None
+
+    def _append_log_line(self, line):
+        self._recent_log.append(line)
+        while len(self._recent_log) > self._LOG_MAX_LINES:
+            self._recent_log.pop(0)
+        self.listbox.delete(0, tk.END)
+        for ln in self._recent_log:
+            self.listbox.insert(tk.END, ln)
+
+    def _on_tag_read(self, tag, idx_in_batch):
+        line = "{0}  RSSI={1}".format(tag.epc_hex, tag.rssi)
+        delay_ms = idx_in_batch * 45
+
+        def append():
+            self._append_log_line(line)
+            self._update_scan_tree_live(tag)
+
+        if delay_ms <= 0:
+            self.after(0, append)
+        else:
+            self.after(delay_ms, append)
+
+    def _update_scan_tree_live(self, tag):
+        epc = tag.epc_hex
+        if epc in self._expected_set:
+            iid = self._tree_expected_items.get(epc)
+            if iid is not None:
+                try:
+                    self.scan_tree.item(
+                        iid,
+                        values=("ENCONTRADO", epc, tag.rssi),
+                        tags=("found",),
+                    )
+                except Exception:
+                    pass
+            return
+
+        iid_new = self._tree_new_items.get(epc)
+        if iid_new is None:
+            iid_new = self.scan_tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+            self._tree_new_items[epc] = iid_new
+        else:
+            try:
+                self.scan_tree.item(iid_new, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+            except Exception:
+                pass
+
+    def _compare_and_show(self):
+        loc = self._location_key()
+        r, snap, expected = self._inventory.compare_location(loc)
+        self._last_snap = snap
+        self._result_location = loc
+
+        self.result_line_location.set("Ubicación: {0}".format(loc))
+        self.result_line_stats.set(
+            "Esperados: {0} | OK: {1} | Faltan: {2} | Nuevos: {3}".format(
+                len(expected),
+                len(r.encontrados),
+                len(r.faltantes),
+                len(r.nuevos),
+            )
+        )
+
+        self._result_rows = []
+
+        for epc in r.encontrados:
+            rss = snap["last_rssi"].get(epc, "")
+            self._result_rows.append(
+                {"kind": "encontrado", "status": "ENCONTRADO", "epc": epc, "rssi": rss}
+            )
+        for epc in r.faltantes:
+            self._result_rows.append(
+                {"kind": "faltante", "status": "NO ESCANEADO", "epc": epc, "rssi": ""}
+            )
+        for epc in r.nuevos:
+            rss = snap["last_rssi"].get(epc, "")
+            self._result_rows.append(
+                {"kind": "nuevo", "status": "ACTIVO NUEVO", "epc": epc, "rssi": rss}
+            )
+
+        self._filter_mode.set("todos")
+        self._apply_result_filter()
+
+    def _apply_result_filter(self):
+        mode = self._filter_mode.get()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        for row in self._result_rows:
+            if mode == "faltantes" and row["kind"] != "faltante":
+                continue
+            if mode == "nuevos" and row["kind"] != "nuevo":
+                continue
+            tag = "found"
+            if row["kind"] == "faltante":
+                tag = "missing"
+            elif row["kind"] == "nuevo":
+                tag = "new"
+            self.tree.insert(
+                "",
+                tk.END,
+                values=(row["status"], row["epc"], row["rssi"]),
+                tags=(tag,),
+            )
+
+    def _on_result_double_click(self, event):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        vals = self.tree.item(sel[0], "values")
+        if len(vals) < 3:
+            return
+        status, epc, rssi = vals[0], vals[1], vals[2]
+        self.detail_epc_var.set(epc)
+        self.detail_status_var.set(status)
+        self.detail_loc_var.set(self._result_location)
+        self.detail_rssi_var.set(rssi if rssi else "—")
+        self._show_frame("detail")
+
+    def on_close(self):
+        try:
+            self._cancel_pending_pistol_start()
+            self._scanner.resume()
+            self._scanner.stop()
+            self._driver.close()
+        finally:
+            self.destroy()
+
+
+def main():
+    HandheldApp().mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

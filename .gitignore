@@ -14,3 +14,6 @@ Desktop.ini
 # Editor
 .idea/
 .vscode/
+
+# Inventario guardado desde la pistola (local)
+data/
