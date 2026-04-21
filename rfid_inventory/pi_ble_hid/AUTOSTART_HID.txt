@@ -52,7 +52,22 @@ No hay conflicto: el HID arranca después de bluetooth.service. La clase
 0x000540 (teclado) puede seguir en tu otro servicio.
 
 --------------------------------------------------------------------------------
-5) Parar el modo manual
+5) Si falla con "timeout was exceeded"
+--------------------------------------------------------------------------------
+
+Suele ser ExecStartPre colgado (btmgmt/bluetoothctl). El unit actual usa
+`timeout 8` en cada comando y `TimeoutStartSec=0`. Vuelve a copiar el .service
+del repo, `daemon-reload` y `restart`.
+
+Si sigue mal, mira el log:
+
+  journalctl -u rfid-hid-gatt.service -e --no-pager
+
+Comprueba que en el .service NO quede CHANGE_ME y que exista gatt_server_rfid.py
+en la ruta del ExecStart.
+
+--------------------------------------------------------------------------------
+6) Parar el modo manual
 --------------------------------------------------------------------------------
 
 Si antes lanzabas gatt_server_rfid.py a mano, no lo ejecutes dos veces:
@@ -61,7 +76,7 @@ Si antes lanzabas gatt_server_rfid.py a mano, no lo ejecutes dos veces:
   sudo systemctl start rfid-hid-gatt.service  # volver a autostart
 
 --------------------------------------------------------------------------------
-6) Windows en el día a día
+7) Windows en el día a día
 --------------------------------------------------------------------------------
 
 Con el servicio activo, al prender la Pi solo esperas unos segundos y en la

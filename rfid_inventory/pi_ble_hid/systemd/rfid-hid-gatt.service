@@ -1,12 +1,10 @@
 # Instalación: copiar a /etc/systemd/system/rfid-hid-gatt.service
-# y editar las rutas ExecStart / WorkingDirectory según tu usuario y clone del repo.
+# y editar CHANGE_ME por tu usuario y ruta del repo.
 #
 #   sudo cp rfid-hid-gatt.service /etc/systemd/system/
-#   sudo nano /etc/systemd/system/rfid-hid-gatt.service   # ajustar rutas
-#   sudo cp rfid-hid-gatt.default /etc/default/rfid-hid-gatt
-#   sudo nano /etc/default/rfid-hid-gatt                 # RFID_PORT, etc.
+#   sudo nano /etc/systemd/system/rfid-hid-gatt.service
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now rfid-hid-gatt.service
+#   sudo systemctl restart rfid-hid-gatt.service
 
 [Unit]
 Description=BLE HID keyboard (gatt_server_rfid) for RFID pistol
@@ -15,12 +13,19 @@ Wants=bluetooth.service
 
 [Service]
 Type=simple
-# Variables RFID_* (opcional): ver rfid-hid-gatt.default
+# Sin límite de tiempo de arranque (btmgmt/bluetoothctl no deben bloquear para siempre)
+TimeoutStartSec=0
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
-# Esperar a que hci0 exista y preparar descubrimiento (ajusta si no usas btmgmt)
-ExecStartPre=/bin/sleep 3
-ExecStartPre=/bin/sh -c '/usr/bin/bluetoothctl power on && /usr/bin/bluetoothctl pairable on && /usr/bin/bluetoothctl discoverable on && /usr/bin/btmgmt -i hci0 connectable on && /usr/bin/btmgmt -i hci0 advertising on'
+# Esperar a bluetoothd; cada comando con timeout para no colgar systemd
+ExecStartPre=/bin/sh -c '\
+  sleep 5; \
+  timeout 8 /usr/bin/bluetoothctl power on 2>/dev/null || true; \
+  timeout 8 /usr/bin/bluetoothctl pairable on 2>/dev/null || true; \
+  timeout 8 /usr/bin/bluetoothctl discoverable on 2>/dev/null || true; \
+  timeout 8 /usr/bin/btmgmt -i hci0 connectable on 2>/dev/null || true; \
+  timeout 8 /usr/bin/btmgmt -i hci0 advertising on 2>/dev/null || true; \
+  exit 0'
 ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
 Restart=on-failure
 RestartSec=5
