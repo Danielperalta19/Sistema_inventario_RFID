@@ -55,9 +55,23 @@ No hay conflicto: el HID arranca después de bluetooth.service. La clase
 5) Si falla con "timeout was exceeded"
 --------------------------------------------------------------------------------
 
-El unit ya NO ejecuta bluetoothctl/btmgmt dentro del servicio (eso colgaba).
-Solo arranca `gatt_server_rfid.py`. Copia de nuevo `rfid-hid-gatt.service`,
-`daemon-reload` y `restart`.
+El unit NO depende de bluetooth.service (evita esperas raras). Tiene
+TimeoutStartSec=0. Copia de nuevo `rfid-hid-gatt.service`, `daemon-reload`,
+`restart`.
+
+Antes de arrancar el servicio, no dejes otra copia del script corriendo:
+
+  sudo pkill -f gatt_server_rfid.py
+
+Si dos procesos registran GATT, uno falla o se bloquea.
+
+Prueba el Python a mano (mismas rutas que en el .service):
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  set -a; . /etc/default/rfid-hid-gatt; set +a
+  sudo -E python3 gatt_server_rfid.py
+
+Si aquí ves error, el fallo no es systemd sino el script o D-Bus.
 
 Para dejar visible el Bluetooth después del arranque, ejecuta (ajusta usuario):
 

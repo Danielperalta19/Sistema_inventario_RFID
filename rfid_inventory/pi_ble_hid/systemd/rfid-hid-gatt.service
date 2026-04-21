@@ -1,18 +1,19 @@
 # Instalación: copiar a /etc/systemd/system/rfid-hid-gatt.service
 # Sustituir CHANGE_ME por tu usuario Linux.
 #
-# Bluetooth (discoverable / advertising) NO va aquí para evitar timeouts de systemd.
-# Tras el arranque, ejecuta una vez (o ponlo en cron @reboot):
-#   rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
+# Sin "After=bluetooth.service" para evitar que el arranque quede esperando
+# si bluetoothd tarda o está en estado raro (causa típica de "timeout exceeded").
+#
+# Bluetooth visible: ejecutar rfid-hid-bt-up.sh tras el arranque.
 
 [Unit]
 Description=BLE HID keyboard (gatt_server_rfid) for RFID pistol
-After=bluetooth.service
-Wants=bluetooth.service
+After=multi-user.target
 
 [Service]
 Type=simple
-TimeoutStartSec=120
+# 0 = sin límite de tiempo de arranque (systemd)
+TimeoutStartSec=0
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
 ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
