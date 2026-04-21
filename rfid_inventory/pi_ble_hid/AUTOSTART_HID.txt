@@ -107,4 +107,22 @@ Con el servicio activo, al prender la Pi solo esperas unos segundos y en la
 laptop suele bastar "Conectar" al dispositivo ya emparejado (sin repetir LE
 Explorer cada vez).
 
+--------------------------------------------------------------------------------
+8) Si tras reiniciar la Pi no queda "advertising" / Windows no reconecta
+--------------------------------------------------------------------------------
+
+A veces el primer rfid-hid-bt-up corre demasiado pronto o BlueZ quita la
+publicidad al registrar el HID. Opcional: habilitar un SEGUNDO disparo del
+mismo script DESPUÉS del GATT:
+
+  systemd/rfid-hid-bt-up-post.service
+
+Copiar a /etc/systemd/system/, sustituir CHANGE_ME, luego:
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-bt-up-post.service
+  sudo systemctl start rfid-hid-bt-up-post.service
+
+Comprueba: sudo btmgmt -i hci0 info  (current settings: advertising, discoverable)
+
 ================================================================================

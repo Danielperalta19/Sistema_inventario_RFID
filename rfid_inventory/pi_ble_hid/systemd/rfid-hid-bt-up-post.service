@@ -1,0 +1,22 @@
+# Segundo disparo de rfid-hid-bt-up.sh DESPUÉS de que el HID esté arriba.
+# En algunas Pi el primer bt-up corre demasiado pronto o BlueZ apaga la
+# publicidad al registrar GATT; repetir aquí suele dejar advertising estable.
+#
+# Sustituir CHANGE_ME. Copiar a /etc/systemd/system/ y:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable rfid-hid-bt-up-post.service
+
+[Unit]
+Description=Bluetooth advertising refresh (after HID GATT)
+After=rfid-hid-gatt.service
+Wants=rfid-hid-gatt.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 25
+ExecStart=/bin/bash /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -7,6 +7,7 @@ Emparejamiento Pi ↔ Windows (pasos y comandos que funcionaron):
 Arranque automático del HID al encender la Pi (systemd):
   → AUTOSTART_HID.txt
   → systemd/rfid-hid-bt-up.service (discoverable + advertising al boot)
+  → systemd/rfid-hid-bt-up-post.service (opcional: repetir bt-up tras el HID)
   → systemd/rfid-hid-gatt.service (+ rfid-hid-gatt.default)
 
 Archivos:
