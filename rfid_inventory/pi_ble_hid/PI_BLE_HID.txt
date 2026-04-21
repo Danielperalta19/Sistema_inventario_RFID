@@ -6,7 +6,8 @@ Emparejamiento Pi ↔ Windows (pasos y comandos que funcionaron):
 
 Arranque automático del HID al encender la Pi (systemd):
   → AUTOSTART_HID.txt
-  → systemd/rfid-hid-gatt.service  (+ rfid-hid-gatt.default)
+  → systemd/rfid-hid-bt-up.service (discoverable + advertising al boot)
+  → systemd/rfid-hid-gatt.service (+ rfid-hid-gatt.default)
 
 Archivos:
 - gattServer_upstream.py  — original HeadHodge (referencia).

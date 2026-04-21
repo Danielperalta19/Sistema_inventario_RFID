@@ -74,6 +74,12 @@ Dejar esta terminal abierta. Debe aparecer algo como "GATT application registere
 Notas
 --------------------------------------------------------------------------------
 
+- A veces Configuración de Windows (Añadir Bluetooth) dice que el dispositivo "no
+  responde", pero Bluetooth LE Explorer sí conecta: es normal. El Explorador usa
+  el flujo BLE/GATT; los Ajustes usan otro camino y fallan con algunos
+  periféricos HID BLE. Si pasa, empareja/conecta con LE Explorer (Pair + OK en
+  la Pi por screen share + OK en la app) y usa Bloc de notas para probar.
+
 - Si más adelante "no quiere conectarse": en Windows, olvidar el dispositivo;
   en la Pi, opcionalmente `sudo bluetoothctl remove <MAC_de_la_laptop>`; repetir
   desde el paso 1.

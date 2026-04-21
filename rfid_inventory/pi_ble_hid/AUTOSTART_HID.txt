@@ -6,17 +6,18 @@ Objetivo: al encender la pistola, sin abrir terminal, queden listos Bluetooth
 (descubrible / publicidad) y el proceso gatt_server_rfid.py.
 
 Archivos en esta carpeta:
-  systemd/rfid-hid-gatt.service   — unidad systemd
+  systemd/rfid-hid-bt-up.service  — discoverable + advertising al arrancar (antes del HID)
+  systemd/rfid-hid-gatt.service   — servidor HID (después del anterior)
   systemd/rfid-hid-gatt.default   — ejemplo para /etc/default/rfid-hid-gatt
 
 --------------------------------------------------------------------------------
-1) Editar rutas en el .service
+1) Editar rutas en los .service
 --------------------------------------------------------------------------------
 
-Reemplaza CHANGE_ME por tu usuario Linux en la Pi (ej. user, pi):
+Reemplaza CHANGE_ME por tu usuario Linux en la Pi (ej. user, pi) en:
 
-  WorkingDirectory=/home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
-  ExecStart=/usr/bin/python3 /home/user/.../gatt_server_rfid.py
+  systemd/rfid-hid-bt-up.service   (ExecStart → rfid-hid-bt-up.sh)
+  systemd/rfid-hid-gatt.service    (WorkingDirectory y ExecStart)
 
 Si el repo está en otra ruta, ajusta todo el path.
 
@@ -24,6 +25,7 @@ Si el repo está en otra ruta, ajusta todo el path.
 2) Copiar en la Pi
 --------------------------------------------------------------------------------
 
+  sudo cp systemd/rfid-hid-bt-up.service /etc/systemd/system/
   sudo cp systemd/rfid-hid-gatt.service /etc/systemd/system/
   sudo cp systemd/rfid-hid-gatt.default /etc/default/rfid-hid-gatt
 
@@ -32,7 +34,9 @@ Si el repo está en otra ruta, ajusta todo el path.
     # RFID_BAUD=115200
 
   sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-bt-up.service
   sudo systemctl enable rfid-hid-gatt.service
+  sudo systemctl start rfid-hid-bt-up.service
   sudo systemctl start rfid-hid-gatt.service
 
 --------------------------------------------------------------------------------

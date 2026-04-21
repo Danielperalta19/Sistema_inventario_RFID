@@ -8,7 +8,8 @@
 
 [Unit]
 Description=BLE HID keyboard (gatt_server_rfid) for RFID pistol
-After=multi-user.target
+After=bluetooth.service rfid-hid-bt-up.service
+Wants=bluetooth.service rfid-hid-bt-up.service
 
 [Service]
 Type=simple

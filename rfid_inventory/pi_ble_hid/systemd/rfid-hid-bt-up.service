@@ -1,0 +1,24 @@
+# Copiar a /etc/systemd/system/rfid-hid-bt-up.service
+# Sustituir CHANGE_ME por tu usuario (misma ruta que rfid-hid-gatt.service).
+#
+#   sudo cp rfid-hid-bt-up.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/rfid-hid-bt-up.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable rfid-hid-bt-up.service
+#   sudo systemctl start rfid-hid-bt-up.service   # probar
+#
+# Debe habilitarse JUNTO con rfid-hid-gatt (el GATT arranca después de este).
+
+[Unit]
+Description=Bluetooth discoverable + LE advertising (RFID pistol)
+After=bluetooth.service
+Before=rfid-hid-gatt.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target
