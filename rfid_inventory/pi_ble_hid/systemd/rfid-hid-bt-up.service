@@ -18,7 +18,8 @@ Before=rfid-hid-gatt.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/bash /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
-TimeoutStartSec=60
+# El script suma ~3+24+45s; 60s mataba a systemd el job y a veces dejaba discoverable / advertise mal
+TimeoutStartSec=150
 
 [Install]
 WantedBy=multi-user.target

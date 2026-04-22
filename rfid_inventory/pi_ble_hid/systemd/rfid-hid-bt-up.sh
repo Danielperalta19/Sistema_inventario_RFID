@@ -17,8 +17,9 @@ jlog() { systemd-cat -t rfid-hid-bt-up -p info; }
   timeout 8 bluetoothctl pairable on 2>&1 | jlog || true
   timeout 8 bluetoothctl discoverable on 2>&1 | jlog || true
 
-  # Anuncio LE (en tu Pi esto reemplaza a btmgmt advertising sin colgarse)
-  timeout 45 bluetoothctl advertise on 2>&1 | jlog || true
+  # Anuncio LE. timeout 45 era corto: al cortar, en algunas BlueZ cesa el anuncio
+  # y LE Explorer deja de ver el periférico. Debe caber bajo rfid-hid-bt-up TimeoutStartSec
+  timeout 90 bluetoothctl advertise on 2>&1 | jlog || true
 
   echo "end" | jlog
   exit 0
