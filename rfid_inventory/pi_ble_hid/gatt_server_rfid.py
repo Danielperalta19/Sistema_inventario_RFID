@@ -16,9 +16,10 @@ import dbus.mainloop.glib
 import dbus.service
 
 try:
-  from gi.repository import GObject
+  from gi.repository import GLib, GObject
 except ImportError:
   import gobject as GObject
+  GLib = GObject
 import importlib.util
 import os
 import sys
@@ -311,7 +312,7 @@ class BatteryLevelCharacteristic(Characteristic):
             self.battery_lvl -= 2
             if self.battery_lvl < 5:
                 #self.battery_lvl = 0
-                GObject.source_remove(self.timer)
+                GLib.source_remove(self.timer)
                 
         print('Battery Level drained: ' + repr(self.battery_lvl))
         self.notify_battery_level()
@@ -329,7 +330,7 @@ class BatteryLevelCharacteristic(Characteristic):
             return
 
         self.notifying = True
-        self.timer = GObject.timeout_add(60000, self.drain_battery)
+        self.timer = GLib.timeout_add(60000, self.drain_battery)
 
     def StopNotify(self):
         print('Stop Battery Notify')
@@ -827,7 +828,7 @@ def _schedule_send_text(text):
             print(f"send_text error: {exc}")
         return False
 
-    GObject.idle_add(_run)
+    GLib.idle_add(_run)
 
 
 def _load_r200_class(_rf_pkg_dir):
@@ -947,7 +948,7 @@ def main():
 
     app = Application(bus)
 
-    mainloop = GObject.MainLoop()
+    mainloop = GLib.MainLoop()
 
     print('Registering GATT application...')
 

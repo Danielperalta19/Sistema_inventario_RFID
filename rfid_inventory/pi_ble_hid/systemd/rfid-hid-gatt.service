@@ -15,6 +15,8 @@ Wants=bluetooth.service rfid-hid-bt-up.service
 Type=simple
 # Sin ExecStartPre aquí (btmgmt en pre colgaba ~90s). Bluetooth: rfid-hid-bt-up.sh
 TimeoutStartSec=3600
+# print() a stdout aparece al instante en journalctl (si no, queda en buffer bajo systemd)
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
 ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
