@@ -1,5 +1,5 @@
 # Copiar a /etc/systemd/system/rfid-hid-bt-up.service
-# Sustituir CHANGE_ME por tu usuario (misma ruta que rfid-hid-gatt.service).
+# Ruta: usuario Linux de la Pi (defecto: user; si usas "pi" u otro, edita en /etc).
 #
 #   sudo cp rfid-hid-bt-up.service /etc/systemd/system/
 #   sudo nano /etc/systemd/system/rfid-hid-bt-up.service
@@ -17,9 +17,9 @@ Before=rfid-hid-gatt.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
-# El script suma ~3+24+45s; 60s mataba a systemd el job y a veces dejaba discoverable / advertise mal
-TimeoutStartSec=150
+ExecStart=/bin/bash /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
+# Script ~3s + varios timeout 8 + advertise 90 + refuerzo discoverable (~160s peor caso)
+TimeoutStartSec=200
 
 [Install]
 WantedBy=multi-user.target

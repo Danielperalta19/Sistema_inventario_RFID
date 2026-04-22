@@ -104,8 +104,8 @@ Archivos bajo: rfid_inventory/pi_ble_hid/systemd/
   Plantilla de variables para copiar a /etc/default/rfid-hid-gatt (RFID_PORT,
   RFID_BAUD, RFID_DEBOUNCE_S).
 
-Sustituir CHANGE_ME en los .service por el usuario real de la Pi
-(p. ej. user) o editar directamente /etc/systemd/system/*.service.
+En el repo las rutas van con /home/user/; si la Pi usa otro login, edita o
+bien los .service o solo las copias bajo /etc/systemd/system/*.service.
 
 ================================================================================
 6. Script Shell: rfid-hid-bt-up.sh
@@ -114,8 +114,8 @@ Sustituir CHANGE_ME en los .service por el usuario real de la Pi
 Qué hace, en resumen:
 - sleep 3 (dar tiempo a bluetoothd)
 - timeout 8 bluetoothctl: power on, pairable on, discoverable on
-- timeout 45 bluetoothctl advertise on  (anuncio LE; salida a systemd-cat con
-  tag rfid-hid-bt-up para "journalctl -t rfid-hid-bt-up")
+- timeout 90 bluetoothctl advertise on  (anuncio LE; journalctl -t rfid-hid-bt-up)
+- rfid-hid-bt-up.service: TimeoutStartSec=150 (el script tarda ~1 min)
 
 Cambios en el tiempo (bitácora de problemas):
 - Inicialmente se probaron "btmgmt -i hci0 connectable on" y
@@ -207,10 +207,9 @@ Detalle: CONEXION_BLUETOOTH_HID.txt en la misma carpeta.
 ================================================================================
 
 - Desarrollo y commit en el PC; en la Pi: git pull.
-- En la Pi, no conviene dejar el clon con rutas editadas a mano (CHANGE_ME
-  reemplazado) si se desea "git status" limpio: alternativa es mantener en el
-  repo el CHANGE_ME y copiar a /etc/systemd/system/ las unidades con rutas
-  reales, o git stash/pull/stash pop con posible resolución de conflictos.
+- En la Pi, "git status" limpio: no editar a mano en el clon archivos rastreados
+  con rutas distintas; o bien solo edita /etc/systemd/system/ y en el clon
+  hace git pull sin cambios locales; o git restore antes de pull.
 - Tras modificar /etc/systemd/system/*.service: systemctl daemon-reload.
 
 ================================================================================

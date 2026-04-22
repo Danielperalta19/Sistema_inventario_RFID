@@ -11,15 +11,17 @@ Archivos en esta carpeta:
   systemd/rfid-hid-gatt.default   — ejemplo para /etc/default/rfid-hid-gatt
 
 --------------------------------------------------------------------------------
-1) Editar rutas en los .service
+1) Rutas en los .service
 --------------------------------------------------------------------------------
 
-Reemplaza CHANGE_ME por tu usuario Linux en la Pi (ej. user, pi) en:
+En el repositorio las rutas usan /home/user/... (usuario Linux "user"). Si tu
+Pi usa otro usuario (ej. pi), edita antes de copiar a /etc, o edita en
+/etc/systemd/system/ directamente.
 
-  systemd/rfid-hid-bt-up.service   (ExecStart → rfid-hid-bt-up.sh)
+  systemd/rfid-hid-bt-up.service, rfid-hid-bt-up-post.service (ExecStart → sh)
   systemd/rfid-hid-gatt.service    (WorkingDirectory y ExecStart)
 
-Si el repo está en otra ruta, ajusta todo el path.
+Si el repo en la Pi no está bajo ~/Sistema_inventario_RFID, ajusta todo el path.
 
 --------------------------------------------------------------------------------
 2) Copiar en la Pi
@@ -88,7 +90,8 @@ Si sigue mal:
 
   journalctl -u rfid-hid-gatt.service -e --no-pager
 
-Comprueba que NO quede CHANGE_ME en el .service y que exista gatt_server_rfid.py.
+Comprueba que las rutas en el .service apunten a tu clon (y a user/pi) y que
+exista gatt_server_rfid.py.
 
 --------------------------------------------------------------------------------
 6) Parar el modo manual
@@ -117,7 +120,7 @@ mismo script DESPUÉS del GATT:
 
   systemd/rfid-hid-bt-up-post.service
 
-Copiar a /etc/systemd/system/, sustituir CHANGE_ME, luego:
+Copiar a /etc/systemd/system/ (ajustar usuario/ruta en /etc si hace falta), luego:
 
   sudo systemctl daemon-reload
   sudo systemctl enable rfid-hid-bt-up-post.service

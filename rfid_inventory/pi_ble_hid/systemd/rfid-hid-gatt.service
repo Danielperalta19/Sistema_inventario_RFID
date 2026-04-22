@@ -1,5 +1,5 @@
 # Instalación: copiar a /etc/systemd/system/rfid-hid-gatt.service
-# Sustituir CHANGE_ME por tu usuario Linux.
+# Ruta: usuario "user" o edita en /etc si el Linux user es otro (ej. pi).
 #
 # Sin "After=bluetooth.service" para evitar que el arranque quede esperando
 # si bluetoothd tarda o está en estado raro (causa típica de "timeout exceeded").
@@ -18,8 +18,8 @@ TimeoutStartSec=3600
 # print() a stdout aparece al instante en journalctl (si no, queda en buffer bajo systemd)
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/default/rfid-hid-gatt
-WorkingDirectory=/home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
-ExecStart=/usr/bin/python3 /home/CHANGE_ME/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
+WorkingDirectory=/home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+ExecStart=/usr/bin/python3 /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
 Restart=on-failure
 RestartSec=5
 
