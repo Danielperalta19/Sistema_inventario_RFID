@@ -1,8 +1,8 @@
 #!/bin/sh
 # Deja el adaptador visible y anuncia LE. Journal: journalctl -t rfid-hid-bt-up -b
 #
-# En varias RPi+BlueZ, "btmgmt connectable|advertising on" bloquea (no vuelve) y
-# con timeout 15 s sale 124; la publicidad estable se logra con bluetoothctl.
+# bluetoothctl: base + advertise. A veces Windows no lista el dispositivo hasta forzar
+# "btmgmt advertising on" (a veces bloquea; timeout + exit en el journal).
 
 jlog() { systemd-cat -t rfid-hid-bt-up -p info; }
 
@@ -33,6 +33,18 @@ discoverable-timeout 0
 discoverable on
 quit
 BTEOF
+
+  # Refuerzo mgmt: en pruebas ayudó a que Windows (Ajustes BT) viera "Pistola..." al cabo
+  # de ~1 min; a veces btmgmt no termina (exit 124) y no pasa nada, el resto ya anuncia.
+  _bml="/tmp/rfid-btmgmt-$$.log"
+  if timeout 25 btmgmt -i hci0 advertising on >"$_bml" 2>&1; then
+    _bme=0
+  else
+    _bme=$?
+  fi
+  if [ -s "$_bml" ]; then cat "$_bml" | jlog; else echo "(btmgmt advertising: sin salida)" | jlog; fi
+  echo "btmgmt -i hci0 advertising on -> exit $_bme" | jlog
+  rm -f "$_bml"
 
   echo "end" | jlog
   exit 0
