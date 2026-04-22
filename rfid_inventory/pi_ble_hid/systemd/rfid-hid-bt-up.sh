@@ -13,19 +13,26 @@ jlog() { systemd-cat -t rfid-hid-bt-up -p info; }
   echo "start" | jlog
   sleep 3
 
-  timeout 8 bluetoothctl power on 2>&1 | jlog || true
-  # Sin esto, BlueZ avisa: "discoverable-timeout not set(0) is not recommended" y a veces
-  # pasa Discoverable: no poco despues. Si el comando no existe en tu bluez, falla y se ignora.
-  timeout 8 bluetoothctl discoverable-timeout 0 2>&1 | jlog || true
-  timeout 8 bluetoothctl pairable on 2>&1 | jlog || true
-  timeout 8 bluetoothctl discoverable on 2>&1 | jlog || true
+  # Misma invocación de bluetoothctl: si cada comando es un proceso distinto, BlueZ
+  # a veces sigue avisando "discoverable-timeout not set" al hacer discoverable on.
+  # Advertise on va aparte (suele bloquear hasta timeout).
+  timeout 20 bluetoothctl <<'BTEOF' 2>&1 | jlog || true
+power on
+discoverable-timeout 0
+pairable on
+discoverable on
+quit
+BTEOF
 
   # Anuncio LE; al vencer el timeout, en algunas versiones cesa el anuncio o baja discoverable
   timeout 90 bluetoothctl advertise on 2>&1 | jlog || true
 
-  # Reforzar descubrimiento (advertise a veces deja discoverable en no)
-  timeout 5 bluetoothctl discoverable-timeout 0 2>&1 | jlog || true
-  timeout 5 bluetoothctl discoverable on 2>&1 | jlog || true
+  # Reforzar (una sola sesión)
+  timeout 15 bluetoothctl <<'BTEOF' 2>&1 | jlog || true
+discoverable-timeout 0
+discoverable on
+quit
+BTEOF
 
   echo "end" | jlog
   exit 0
