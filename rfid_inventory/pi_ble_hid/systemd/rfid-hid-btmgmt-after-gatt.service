@@ -14,8 +14,11 @@ Wants=rfid-hid-gatt.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStartPre=/bin/sleep 8
-ExecStart=/usr/bin/btmgmt -i hci0 advertising on
-TimeoutStartSec=30
+# En varias Pi btmgmt tarda o se bloquea; TimeoutStartSec=30 hacia fallar el whole unit.
+# timeout(1) mata btmgmt a los 90s; || true mantiene el oneshot en success para no dejar
+# el arranque en rojo aunque falle el comando.
+ExecStart=/bin/bash -c 'timeout 90 btmgmt -i hci0 advertising on || true'
+TimeoutStartSec=120
 
 [Install]
 WantedBy=multi-user.target
