@@ -98,10 +98,11 @@ Archivos bajo: rfid_inventory/pi_ble_hid/systemd/
   Windows pedia re-emparejar tras reiniciar la Pi, esto refuerza sin tocar
   manual.
 
-- rfid-hid-btmgmt-after-gatt.service (recomendado)
-  Oneshot tras rfid-hid-gatt: sleep 8 y "btmgmt -i hci0 advertising on". Si
-  sin esto "current settings" no muestra advertising hasta hacerlo a mano, o
-  tras reboot Windows obliga a olvidar/re-emparejar, habilitar este unit.
+- rfid-hid-btmgmt-after-gatt.service + rfid-hid-btmgmt-after-gatt.sh (recomendado)
+  Tras gatt, script con 20s+btmgmt+20s+btmgmt (doble). El bloque
+  "timeout 90 bluetoothctl advertise" al inicio de rfid-hid-bt-up se quito: al
+  matar ese proceso a veer se ponia mal el anuncio y "btmgmt info" no mostraba
+  advertising hasta actuar a mano.
 
 - rfid-hid-gatt.service
   Servicio de tipo simple: lanza gatt_server_rfid.py. Depende a nivel de

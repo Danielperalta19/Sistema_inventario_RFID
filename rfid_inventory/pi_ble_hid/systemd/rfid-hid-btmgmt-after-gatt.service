@@ -1,9 +1,7 @@
-# Tras registrar el HID en BlueZ, a menudo hace falta fijar de nuevo
-# "btmgmt -i hci0 advertising on" para que "current settings" muestre
-# advertising y Windows pueda ver/reconectar sin re-emparejar cada boot.
-# Copiar a /etc/systemd/system/ y: enable --now
+# Tras GATT, ejecuta rfid-hid-btmgmt-after-gatt.sh (2x btmgmt con pausas).
+# Copiar este .service y el .sh; chmod +x el .sh. enable --now
 #
-# Orden: rfid-hid-bt-up -> rfid-hid-gatt (Python) -> este (tras unos s)
+# Orden: rfid-hid-bt-up -> rfid-hid-gatt -> este
 
 [Unit]
 Description=btmgmt advertising on after GATT (RFID pistol)
@@ -13,12 +11,9 @@ Wants=rfid-hid-gatt.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/bin/sleep 8
-# No usar timeout(1) aquí: si mata btmgmt antes de "Set Advertising complete", el
-# bit advertising no queda en current settings (tuviste que repetir a mano). A mano
-# btmgmt suele volver en <2s; si en tu Pi se cuelga, sube TimeoutStartSec.
-ExecStart=/usr/bin/btmgmt -i hci0 advertising on
-TimeoutStartSec=45
+# Ver rfid-hid-btmgmt-after-gatt.sh: dos pasadas y esperas; sustituir ruta user si aplica
+ExecStart=/bin/bash /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-btmgmt-after-gatt.sh
+TimeoutStartSec=120
 StandardInput=null
 
 [Install]

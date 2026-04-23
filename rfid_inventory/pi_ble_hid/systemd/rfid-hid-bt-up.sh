@@ -24,8 +24,9 @@ discoverable on
 quit
 BTEOF
 
-  # Anuncio LE; al vencer el timeout, en algunas versiones cesa el anuncio o baja discoverable
-  timeout 90 bluetoothctl advertise on 2>&1 | jlog || true
+  # Nada de "timeout 90 bluetoothctl advertise on" aqui: al matar ese proceso a los 90s
+  # a veer se tira abajo un advertising object y luego "btmgmt info" no muestra
+  # el bit; el anuncio lo refuerza btmgmt al final y rfid-hid-btmgmt-after-gatt.
 
   # Reforzar (una sola sesión)
   timeout 15 bluetoothctl <<'BTEOF' 2>&1 | jlog || true
