@@ -1,0 +1,21 @@
+# Tras registrar el HID en BlueZ, a menudo hace falta fijar de nuevo
+# "btmgmt -i hci0 advertising on" para que "current settings" muestre
+# advertising y Windows pueda ver/reconectar sin re-emparejar cada boot.
+# Copiar a /etc/systemd/system/ y: enable --now
+#
+# Orden: rfid-hid-bt-up -> rfid-hid-gatt (Python) -> este (tras unos s)
+
+[Unit]
+Description=btmgmt advertising on after GATT (RFID pistol)
+After=rfid-hid-gatt.service
+Wants=rfid-hid-gatt.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 8
+ExecStart=/usr/bin/btmgmt -i hci0 advertising on
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

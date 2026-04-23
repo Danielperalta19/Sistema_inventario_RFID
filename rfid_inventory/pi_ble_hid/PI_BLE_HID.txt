@@ -9,6 +9,8 @@ Arranque automático del HID al encender la Pi (systemd):
   → systemd/rfid-hid-bt-up.service (discoverable + advertising al boot)
   → systemd/rfid-hid-bt-up-post.service (opcional: repetir bt-up tras el HID)
   → systemd/rfid-hid-gatt.service (+ rfid-hid-gatt.default)
+  → systemd/rfid-hid-btmgmt-after-gatt.service (recomendado: btmgmt tras el GATT)
+  → systemd/rfid-hid-btmgmt-refresh.timer (opcional: refuerzo ~3 min tras boot)
 
 Archivos:
 - gattServer_upstream.py  — original HeadHodge (referencia).
