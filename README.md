@@ -39,6 +39,12 @@ Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). El código d
   - Misma idea que la GUI pero en terminal: imprime una línea por lectura; ENTER detiene.
 - `firmware/arduino_r200_emulator/r200_emulador/r200_emulador.ino`
   - Emulador mínimo del protocolo del R200: responde a `multiple poll`, `stop` e `info`.
+  - Los EPC (12 bytes) se generan a partir de los códigos de **activo** del JSON de ejemplo: texto ASCII rellenado a 12 bytes con `0x00` (misma lógica que el mock numérico `7501…` pero con `FA000358` etc.). Regenerar el array incluido:
+  - `python rfid_inventory/tools/generate_arduino_epc_list.py` → `epc_list_generated.h`
+- `rfid_inventory/data/catalog_ejemplo/`
+  - Ejemplos de **ubicaciones** y **activos** (formato análogo a webservices) para pruebas.
+- `rfid_inventory/catalog/asset_epc12.py`
+  - `asset_code_to_epc12_hex("FA000358")` → 24 hex que usa el driver como `epc_hex`.
 
 ## Cómo funciona (explicación para presentar)
 

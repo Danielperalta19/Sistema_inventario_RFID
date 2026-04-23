@@ -4,3 +4,6 @@
 RFID_PORT=/dev/ttyUSB0
 RFID_BAUD=115200
 RFID_DEBOUNCE_S=0.35
+# Si las etiquetas programan EPC = código de activo (ASCII) en 12 bytes, envía al HID
+# el texto (FA000358...) en vez de hex. Útil con catálogo / emulador.
+#RFID_HID_ASCII=1

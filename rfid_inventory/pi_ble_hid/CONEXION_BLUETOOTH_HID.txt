@@ -68,7 +68,9 @@ Dejar esta terminal abierta. Debe aparecer algo como "GATT application registere
 --------------------------------------------------------------------------------
 
 - Con el HID registrado y el emparejamiento aceptado, puedes usar Bloc de notas
-  o la página web con foco en el campo de escaneo para probar teclas / EPC.
+  para probar teclas, o la página de prueba web (jQuery Scanner Detection en
+  document; no hace falta foco en un campo) en rfid_inventory/pi_ble_hid/web/
+  scanner_inventario_prueba.html
 
 --------------------------------------------------------------------------------
 Notas

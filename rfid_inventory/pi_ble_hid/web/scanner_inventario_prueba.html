@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Prueba — inventario (scanner)</title>
+  <style>
+    body { font-family: sans-serif; margin: 1rem; max-width: 50em; }
+    pre, .mono { font-family: consolas, monospace; font-size: 13px; }
+    pre { background: #f4f4f4; padding: 0.5rem; overflow: auto; }
+    button { margin: 2px; }
+  </style>
+</head>
+<body>
+
+  <h1>Prueba inventario (lector códigos)</h1>
+  <p>jQuery ScannerDetection en <code>$(document)</code>. No hace falta foco en un input. Ventana del navegador al frente.</p>
+
+  <h2>Contexto (correo / reunión)</h2>
+  <ul>
+    <li><strong>Catálogo / webservices:</strong> Pueden dar acceso, pero con IP dinámica (WiFi) el dispositivo no entraría al whitelist; se debe coordinar seguridad y acceso con Lidia Gómez. Mientras, el cliente mandó <strong>ejemplos</strong> de ubicaciones y activos por ubicación (lo que devolverían los servicios). Hay un atributo <code>tipoUbicacion</code> (ver abajo).</li>
+    <li><strong>Flujo real:</strong> no hay “campos obligatorios” en formulario: se escanea <strong>ubicación</strong> y después los <strong>activos</strong> en esa ubicación (todo con códigos de barra).</li>
+    <li><strong>Enviar resultados:</strong> el dispositivo debe mandar al sistema <strong>sólo los códigos/números de activos ubicados en el sitio</strong>. Recepción con JavaScript, en la línea de lo del plugin (entrada vía lector + BT/ transmisor analógico a teclado).</li>
+  </ul>
+
+  <h2>tipoUbicación (en datos de ejemplo de ellos)</h2>
+  <ul>
+    <li><code>"C"</code> = <strong>Ubicado</strong> — el activo se escaneó en la ubicación que correspondía.</li>
+    <li><code>"U"</code> = <strong>Nueva ubicación</strong> — el activo se escaneó en una ubicación distinta a la anterior.</li>
+    <li><code>"N"</code> o vacío / null = <strong>No ubicado</strong> — en esa toma aún no se escaneó en la ubicación (en inventario).</li>
+  </ul>
+  <p>En esta prueba básica <strong>no</strong> hay catálogo en vivo: solo se lista lo escaneado. La lógica C/U/N iría al integrar con el JSON/CSV de ejemplo que envíen.</p>
+
+  <h2>Prueba de flujo (esta pantalla)</h2>
+  <p><strong>Ubicación actual:</strong> <span id="ubicacion" class="mono">— (escanea un código de ubicación: suelen <strong>terminar en <code>LOC</code></strong> — en los ejemplos del cliente, p. ej. <code>…B6JSLOC</code>.)</span></p>
+  <p><strong>Activos leídos en esta ubicación</strong> (se ignoran repeticiones):</p>
+  <ul id="lista"></ul>
+  <p>
+    <button type="button" id="btResetUbic">Cambiar / reiniciar ubicación</button>
+    (limpia la lista; el siguiente código de <strong>ubicación</strong> fija otra tanda.)
+  </p>
+
+  <h2>Última lectura</h2>
+  <p id="ultima" class="mono">—</p>
+
+  <h2>Payload a enviar al módulo (sólo códigos de activo)</h2>
+  <p>Como indica el cliente, el sistema recibiría <strong>únicamente</strong> esta lista (JSON de strings):</p>
+  <pre id="payload">[]</pre>
+
+  <h2>Simular lecturas (mismo mecanismo que <code>$(document).scannerDetection("…")</code>)</h2>
+  <div id="sim"></div>
+
+  <h2>Log (todo lo escuchado)</h2>
+  <pre id="log" style="max-height: 12em"></pre>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="jquery.scannerdetection.js"></script>
+  <script>
+    (function () {
+      var ubicacion = null;
+      var activos = Object.create(null);
+
+      function isLoc(s) {
+        s = (s || "").trim();
+        if (s.length < 4) return false;
+        var u = s.toUpperCase();
+        return u.endsWith("-LOC") || u.endsWith("LOC");
+      }
+
+      function actualizar() {
+        var u = document.getElementById("ubicacion");
+        u.textContent = ubicacion || "— (escanea un código de ubicación …LOC)";
+        var list = document.getElementById("lista");
+        list.innerHTML = "";
+        var keys = Object.keys(activos).sort();
+        for (var i = 0; i < keys.length; i++) {
+          var li = document.createElement("li");
+          li.className = "mono";
+          li.textContent = keys[i];
+          list.appendChild(li);
+        }
+        var arr = Object.keys(activos).sort();
+        document.getElementById("payload").textContent = JSON.stringify(arr);
+      }
+
+      function traza(linea) {
+        var log = document.getElementById("log");
+        log.textContent = (new Date().toLocaleTimeString() + "  " + linea + "\n" + log.textContent).slice(0, 8000);
+      }
+
+      function onScan(s) {
+        s = (s || "").trim();
+        if (!s) return;
+        document.getElementById("ultima").textContent = s;
+        traza(s);
+
+        if (isLoc(s)) {
+          ubicacion = s;
+          activos = Object.create(null);
+          traza("[ubicación fijada, lista de activos vacía]");
+        } else {
+          if (!ubicacion) {
+            traza("[aviso: primero un código de ubicación (…LOC o …-LOC)]");
+            return;
+          }
+          activos[s] = true;
+        }
+        actualizar();
+      }
+
+      document.getElementById("btResetUbic").onclick = function () {
+        ubicacion = null;
+        activos = Object.create(null);
+        actualizar();
+        traza("[reiniciado: esperar código de ubicación …LOC]");
+      };
+
+      var muestras = [
+        "OVP4PTC9B6JSLOC", "HHLXOI2ACOHRLOC", "FA000358", "FA000370", "OC20260137", "TE20260139"
+      ];
+
+      $(function () {
+        $(document).scannerDetection({ onComplete: onScan });
+        var sim = document.getElementById("sim");
+        for (var i = 0; i < muestras.length; i++) {
+          (function (c) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.textContent = c;
+            b.onclick = function () { $(document).scannerDetection(c); };
+            sim.appendChild(b);
+          })(muestras[i]);
+        }
+        actualizar();
+      });
+    })();
+  </script>
+</body>
+</html>
