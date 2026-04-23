@@ -34,10 +34,11 @@ discoverable on
 quit
 BTEOF
 
-  # Refuerzo mgmt: en pruebas Windows ve el dispositivo; con timeout 25s a menudo
-  # daba 124 ANTES de aplicar el estado — parecía que hacía falta a mano. Subimos a 120s.
+  # Refuerzo mgmt. No encadenar con timeout(1) largo: al matar btmgmt, a veces no
+  # aplica "advertising" en current settings. Si btmgmt se cuelga, el unit rfid-hid-bt-up
+  # (TimeoutStartSec) es quien lo limita.
   _bml="/tmp/rfid-btmgmt-$$.log"
-  if timeout 120 btmgmt -i hci0 advertising on >"$_bml" 2>&1; then
+  if btmgmt -i hci0 advertising on >"$_bml" 2>&1; then
     _bme=0
   else
     _bme=$?
