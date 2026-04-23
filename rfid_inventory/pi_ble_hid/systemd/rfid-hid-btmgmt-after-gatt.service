@@ -13,7 +13,8 @@ Type=oneshot
 RemainAfterExit=yes
 # Ver rfid-hid-btmgmt-after-gatt.sh: dos pasadas y esperas; sustituir ruta user si aplica
 ExecStart=/bin/bash /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-btmgmt-after-gatt.sh
-TimeoutStartSec=120
+# 20+90+20+90 peor caso ~220s; margen
+TimeoutStartSec=260
 StandardInput=null
 
 [Install]
