@@ -1,0 +1,15 @@
+# ~3 min después del boot ejecuta rfid-hid-btmgmt-refresh.service una vez.
+#   sudo cp rfid-hid-btmgmt-refresh.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now rfid-hid-btmgmt-refresh.timer
+
+[Unit]
+Description=Refrescar btmgmt advertising unos minutos tras encender la Pi
+
+[Timer]
+OnBootSec=3min
+AccuracySec=30s
+Unit=rfid-hid-btmgmt-refresh.service
+
+[Install]
+WantedBy=timers.target

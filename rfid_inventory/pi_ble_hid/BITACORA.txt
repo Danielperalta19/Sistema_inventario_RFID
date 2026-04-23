@@ -92,6 +92,12 @@ Archivos bajo: rfid_inventory/pi_ble_hid/systemd/
   HID, BlueZ dejaba de mantener publicidad; el segundo disparo estabiliza el
   anuncio.
 
+- rfid-hid-btmgmt-refresh.service + .timer
+  Opcional: ~3 min tras el boot, ejecuta otra vez "btmgmt -i hci0 advertising
+  on" (hasta 120s). Si con timeout corto en el script no quedaba el anuncio y
+  Windows pedia re-emparejar tras reiniciar la Pi, esto refuerza sin tocar
+  manual.
+
 - rfid-hid-gatt.service
   Servicio de tipo simple: lanza gatt_server_rfid.py. Depende a nivel de
   arranque de bluetooth y (Wants) de rfid-hid-bt-up. NO usa ExecStartPre con

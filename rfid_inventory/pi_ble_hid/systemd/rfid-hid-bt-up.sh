@@ -34,10 +34,10 @@ discoverable on
 quit
 BTEOF
 
-  # Refuerzo mgmt: en pruebas ayudó a que Windows (Ajustes BT) viera "Pistola..." al cabo
-  # de ~1 min; a veces btmgmt no termina (exit 124) y no pasa nada, el resto ya anuncia.
+  # Refuerzo mgmt: en pruebas Windows ve el dispositivo; con timeout 25s a menudo
+  # daba 124 ANTES de aplicar el estado — parecía que hacía falta a mano. Subimos a 120s.
   _bml="/tmp/rfid-btmgmt-$$.log"
-  if timeout 25 btmgmt -i hci0 advertising on >"$_bml" 2>&1; then
+  if timeout 120 btmgmt -i hci0 advertising on >"$_bml" 2>&1; then
     _bme=0
   else
     _bme=$?

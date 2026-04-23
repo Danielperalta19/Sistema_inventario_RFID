@@ -22,6 +22,7 @@ except ImportError:
   GLib = GObject
 import importlib.util
 import os
+import signal
 import sys
 import threading
 import time
@@ -956,6 +957,17 @@ def main():
                                     reply_handler=register_app_cb,
                                     error_handler=register_app_error_cb)
 
+    # Salida al reiniciar la Pi: systemd manda SIGTERM; sin esto el proceso
+    # moría a la fuerza y a veces BlueZ queda con GATT/estado raro al siguiente boot.
+    def _on_signal(signum, _frame):
+        print('Signal %s, cerrando GATT (main loop)...' % signum, flush=True)
+        try:
+            mainloop.quit()
+        except Exception as exc:
+            print('mainloop.quit: %s' % exc, flush=True)
+
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
     mainloop.run()
 
 if __name__ == '__main__':

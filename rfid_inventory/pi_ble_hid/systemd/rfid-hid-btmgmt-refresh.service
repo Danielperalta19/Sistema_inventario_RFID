@@ -1,0 +1,13 @@
+# Segundo disparo SOLO de btmgmt advertising, unos minutos tras el arranque.
+# Si el primero (en rfid-hid-bt-up.sh) no alcanza a fijar el estado, esto refuerza.
+# Copiar a /etc/systemd/system/ y habilitar el .timer (no hace falta habilitar este .service solo).
+
+[Unit]
+Description=btmgmt advertising on (refresco tras boot)
+After=bluetooth.service rfid-hid-gatt.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'exec timeout 120 btmgmt -i hci0 advertising on || true'
+TimeoutStartSec=150

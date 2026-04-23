@@ -17,8 +17,8 @@ RemainAfterExit=yes
 # Tras levantar GATT, BlueZ a veces tarda; 40 s deja el segundo bt-up con más margen
 ExecStartPre=/bin/sleep 40
 ExecStart=/bin/bash /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.sh
-# Debe ser > duración max de rfid-hid-bt-up.sh (p. ej. ~160s)
-TimeoutStartSec=240
+# Debe ser > duración max de rfid-hid-bt-up.sh (btmgmt hasta 120s)
+TimeoutStartSec=400
 
 [Install]
 WantedBy=multi-user.target
