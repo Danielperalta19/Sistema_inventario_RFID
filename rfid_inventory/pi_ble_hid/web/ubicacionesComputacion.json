@@ -1,0 +1,32 @@
+[
+	{
+		"idUbicacion": 823,
+		"nombreCortoUnidad": "CICESE",
+		"nombreLargoUnidad": "CENTRO DE INVESTIGACION CIENTIFICA Y DE EDUCACION SUPERIOR DE ENSENADA, B.C",
+		"edificio": "CIENCIAS DE LA COMPUTACION",
+		"departamento": "POSGRADO EN CIENCIAS DE LA COMPUTACIÓN",
+		"tipo": "I",
+		"piso": "1",
+		"cubo": null,
+		"subcubo": null,
+		"area": "Pasillo (Auditorio , Aula)",
+		"barcode": "HHLXOI2ACOHRLOC",
+		"tipoDecoded": "Interna (Dentro del edificio)",
+		"nombreUbicacion": "Unidad: CICESE - Edificio: CIENCIAS DE LA COMPUTACION - Piso: 1 - Departamento: POSGRADO EN CIENCIAS DE LA COMPUTACIÓN - Area: Pasillo (Auditorio , Aula)"
+	},
+	{
+		"idUbicacion": 1228,
+		"nombreCortoUnidad": "CICESE",
+		"nombreLargoUnidad": "CENTRO DE INVESTIGACION CIENTIFICA Y DE EDUCACION SUPERIOR DE ENSENADA, B.C",
+		"edificio": "CIENCIAS DE LA COMPUTACION",
+		"departamento": "POSGRADO EN CIENCIAS DE LA COMPUTACIÓN",
+		"tipo": "I",
+		"piso": "2",
+		"cubo": "102",
+		"subcubo": null,
+		"area": "Evovision SP",
+		"barcode": "OVP4PTC9B6JSLOC",
+		"tipoDecoded": "Interna (Dentro del edificio)",
+		"nombreUbicacion": "Unidad: CICESE - Edificio: CIENCIAS DE LA COMPUTACION - Piso: 2 - Departamento: POSGRADO EN CIENCIAS DE LA COMPUTACIÓN - Cubo: 102 - Area: Evovision SP"
+	}
+]

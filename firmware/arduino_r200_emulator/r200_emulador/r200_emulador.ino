@@ -11,20 +11,10 @@
 #include <Arduino.h>
 #include <string.h>
 
-// Códigos de activo del JSON de ejemplo (ASCII + 0x00 a 12 bytes). Regenerar:
-//   python rfid_inventory/tools/generate_arduino_epc_list.py
+// EPCs generados desde JSON (activos/ubicaciones) + extras.
+// Archivo: epc_list_generated.h
+#include "inframe.h"
 #include "epc_list_generated.h"
-
-/* Debe ir antes de cualquier función: el preprocesador de Arduino inserta
-   prototipos al inicio y InFrame tiene que existir ya para readFrame(InFrame&). */
-struct InFrame {
-  uint8_t type;
-  uint8_t cmd;
-  uint16_t len;
-  uint8_t params[256];
-  uint8_t csum;
-};
-
 static const uint8_t HDR = 0xAA;
 static const uint8_t END = 0xDD;
 
@@ -49,8 +39,6 @@ static const uint16_t CRC_DEFAULT = 0x0000;
 static const uint16_t TAG_GAP_MS = 15;
 static const uint8_t MULTI_MIN = 6;
 static const uint8_t MULTI_MAX = 22;
-
-static const uint8_t EPC_COUNT = sizeof(EPC_LIST) / sizeof(EPC_LIST[0]);
 
 static uint8_t checksum(uint8_t type, uint8_t cmd, uint16_t len, const uint8_t* params) {
   uint32_t s = 0;

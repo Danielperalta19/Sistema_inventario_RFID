@@ -1,8 +1,13 @@
-"""Inventario RFID para pantalla pequeña (p. ej. Waveshare 480x320).
+"""Inventario RFID para pantalla pequeña (Waveshare típica 480×320, p. ej. con Raspberry Pi Zero 2 W).
 
-Flujo: Inicio (conexión) -> Ubicación -> pantalla de inventario (Iniciar/Detener pistoleo) -> Resultado -> Detalle opcional.
+Flujograma (menú principal):
+  - Inventario por ubicación: conexión lector → ubicación → escaneo → resultado (y detalle).
+  - Rastrear activo / Escribir tag: pendientes de lógica (solo UI placeholder).
+  - Modo teclado BT: pistola como lector de códigos hacia la laptop (sin flujo RFID en esta UI).
 """
 
+import json
+import os
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
@@ -12,8 +17,89 @@ from rfid_inventory.app.inventory_service import InventoryService
 from rfid_inventory.drivers import R200Driver
 
 
+def _asset_code_to_epc12_hex(code: str) -> str:
+    """Misma codificación que el emulador: ASCII (máx 12) + 0x00 hasta 12 bytes, y luego hex."""
+    s = (code or "").strip()
+    b = s.encode("ascii", errors="ignore")[:12]
+    b = b.ljust(12, b"\x00")
+    return b.hex()
+
+
+def _parse_nombre_ubicacion(nombre: str) -> tuple[str, str]:
+    """Extrae edificio y 'sala' desde el string del catálogo (formato 'Unidad: ... - Edificio: X - ...')."""
+    if not nombre:
+        return ("(Sin edificio)", "(Sin sala)")
+    parts = [p.strip() for p in str(nombre).split(" - ") if p.strip()]
+    fields = {}
+    for p in parts:
+        if ":" in p:
+            k, v = p.split(":", 1)
+            fields[k.strip().lower()] = v.strip()
+    edificio = fields.get("edificio") or "(Sin edificio)"
+    piso = fields.get("piso")
+    cubo = fields.get("cubo")
+    subcubo = fields.get("subcubo")
+    area = fields.get("area")
+    sala_bits = []
+    if piso:
+        sala_bits.append(f"Piso {piso}")
+    if cubo:
+        sala_bits.append(f"Cubo {cubo}")
+    if subcubo:
+        sala_bits.append(f"SubCubo {subcubo}")
+    if area:
+        sala_bits.append(area)
+    sala = " · ".join(sala_bits) if sala_bits else str(nombre)
+    return (edificio, sala)
+
+
+def _load_locations_nested_from_json() -> dict:
+    """edificio -> sala -> lista de EPC esperados (hex). Usa los JSON de ejemplo si existen."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    # rfid_inventory/ui/gui -> rfid_inventory -> pi_ble_hid/web
+    web_dir = os.path.abspath(os.path.join(here, "..", "..", "pi_ble_hid", "web"))
+    data_dir = os.path.abspath(os.path.join(here, "..", "..", "data", "catalog_ejemplo"))
+    candidates = [
+        os.path.join(web_dir, "activosPiso2_Computacion.json"),
+        os.path.join(data_dir, "activosPiso2_Computacion.json"),
+    ]
+    activos_path = next((p for p in candidates if os.path.isfile(p)), None)
+    if not activos_path:
+        return {}
+    try:
+        rows = json.loads(open(activos_path, "r", encoding="utf-8").read())
+    except Exception:
+        return {}
+
+    out: dict[str, dict[str, list[str]]] = {}
+    seen_per_room: dict[tuple[str, str], set[str]] = {}
+    for r in rows:
+        a = (r or {}).get("activo") or {}
+        code = a.get("activo")
+        nombre_u = a.get("nombreUbicacion")
+        if not code or not nombre_u:
+            continue
+        edif, sala = _parse_nombre_ubicacion(nombre_u)
+        key = (edif, sala)
+        if key not in seen_per_room:
+            seen_per_room[key] = set()
+        epc_hex = _asset_code_to_epc12_hex(str(code))
+        if epc_hex in seen_per_room[key]:
+            continue
+        seen_per_room[key].add(epc_hex)
+        if edif not in out:
+            out[edif] = {}
+        out[edif].setdefault(sala, []).append(epc_hex)
+
+    # orden estable
+    for edif in out:
+        for sala in out[edif]:
+            out[edif][sala].sort()
+    return out
+
+
 def _mock_locations_nested():
-    """edificio -> sala/lab/cubiculo -> lista de EPC (hex), alineados con el emulador."""
+    """Fallback si no existen los JSON: edificio -> sala -> lista de EPC (hex)."""
     pairs = [
         ("Edificio Central", "Lab A-101"),
         ("Edificio Central", "Lab A-102"),
@@ -69,7 +155,7 @@ class HandheldApp(tk.Tk):
 
         self._driver = R200Driver()
         self._scanner = Scanner(self._driver)
-        self._nested_locations = _mock_locations_nested()
+        self._nested_locations = _load_locations_nested_from_json() or _mock_locations_nested()
         self._locations = _flatten_locations(self._nested_locations)
         self._inventory = InventoryService(self._locations, self._scanner)
 
@@ -78,19 +164,27 @@ class HandheldApp(tk.Tk):
         self.container = tk.Frame(self)
         self.container.pack(fill="both", expand=True)
 
-        self._frame_home = None
+        self._frame_menu = None
+        self._frame_connect = None
         self._frame_setup = None
         self._frame_scan = None
         self._frame_result = None
         self._frame_detail = None
+        self._frame_rastreo = None
+        self._frame_escritura = None
+        self._frame_hid = None
 
-        self._build_home()
+        self._build_menu()
+        self._build_connect()
         self._build_setup()
         self._build_scan()
         self._build_result()
         self._build_detail()
+        self._build_rastreo()
+        self._build_escritura()
+        self._build_hid()
 
-        self._show_frame("home")
+        self._show_frame("menu")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -111,8 +205,10 @@ class HandheldApp(tk.Tk):
     def _show_frame(self, name):
         for w in self.container.winfo_children():
             w.pack_forget()
-        if name == "home":
-            self._frame_home.pack(fill="both", expand=True)
+        if name == "menu":
+            self._frame_menu.pack(fill="both", expand=True)
+        elif name == "connect":
+            self._frame_connect.pack(fill="both", expand=True)
         elif name == "setup":
             self._frame_setup.pack(fill="both", expand=True)
         elif name == "scan":
@@ -121,25 +217,85 @@ class HandheldApp(tk.Tk):
             self._frame_result.pack(fill="both", expand=True)
         elif name == "detail":
             self._frame_detail.pack(fill="both", expand=True)
+        elif name == "rastreo":
+            self._frame_rastreo.pack(fill="both", expand=True)
+        elif name == "escritura":
+            self._frame_escritura.pack(fill="both", expand=True)
+        elif name == "hid":
+            self._frame_hid.pack(fill="both", expand=True)
 
-    def _build_home(self):
-        self._frame_home = tk.Frame(self.container)
+    def _build_menu(self):
+        self._frame_menu = tk.Frame(self.container)
 
         tk.Label(
-            self._frame_home,
-            text="Inventario RFID",
-            font=("", 17, "bold"),
-        ).pack(pady=(16, 6))
+            self._frame_menu,
+            text="Sistema de Inventario RFID",
+            font=("", 16, "bold"),
+        ).pack(pady=(10, 4))
+        tk.Label(
+            self._frame_menu,
+            text="Pantalla 480×320 · elige una opción",
+            font=("", 9),
+            fg="#555",
+        ).pack(pady=(0, 8))
+
+        def big(parent, text, command):
+            b = ttk.Button(
+                parent,
+                text=text,
+                style="HandheldBig.TButton",
+                command=command,
+            )
+            b.pack(fill="x", padx=16, pady=4, ipady=6)
+            return b
+
+        big(
+            self._frame_menu,
+            "Inventario en ubicación",
+            lambda: self._show_frame("connect"),
+        )
+        big(
+            self._frame_menu,
+            "Rastrear activo (próximamente)",
+            lambda: self._show_frame("rastreo"),
+        )
+        big(
+            self._frame_menu,
+            "Escribir tag (próximamente)",
+            lambda: self._show_frame("escritura"),
+        )
+        big(
+            self._frame_menu,
+            "Modo teclado (códigos a la laptop)",
+            lambda: self._show_frame("hid"),
+        )
+
+    def _build_connect(self):
+        """Lector serial: conectar y seguir a selección de ubicación (flujograma: inventario del lugar)."""
+        self._frame_connect = tk.Frame(self.container)
+
+        ttk.Button(
+            self._frame_connect,
+            text="← Menú",
+            style="Handheld.TButton",
+            command=lambda: self._show_frame("menu"),
+        ).pack(anchor="w", padx=8, pady=(6, 0))
 
         tk.Label(
-            self._frame_home,
-            text="Conecta el lector para continuar",
-            font=("", 10),
+            self._frame_connect,
+            text="Inventario en ubicación",
+            font=("", 15, "bold"),
+        ).pack(pady=(4, 4))
+
+        tk.Label(
+            self._frame_connect,
+            text="Conecta el lector RFID al puerto",
+            font=("", 9),
             wraplength=440,
             justify="center",
-        ).pack(pady=(0, 12))
+        ).pack(pady=(0, 8))
 
-        row = tk.Frame(self._frame_home)
+        row = tk.Frame(self._frame_connect)
         row.pack(fill="x", padx=14, pady=4)
 
         tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
@@ -154,18 +310,18 @@ class HandheldApp(tk.Tk):
         self.btn_connect.pack(side="left", padx=6)
 
         self.home_status_var = tk.StringVar(value="Lector: desconectado")
-        tk.Label(self._frame_home, textvariable=self.home_status_var, font=("", 9), wraplength=440, justify="center").pack(
-            fill="x", padx=12, pady=(8, 12)
-        )
+        tk.Label(
+            self._frame_connect, textvariable=self.home_status_var, font=("", 9), wraplength=440, justify="center"
+        ).pack(fill="x", padx=12, pady=(8, 8))
 
         self.btn_continue = ttk.Button(
-            self._frame_home,
-            text="Continuar",
+            self._frame_connect,
+            text="Continuar (ubicación)",
             style="HandheldBig.TButton",
             command=lambda: self._show_frame("setup"),
             state="disabled",
         )
-        self.btn_continue.pack(pady=8, ipadx=20, ipady=8)
+        self.btn_continue.pack(pady=4, ipadx=16, ipady=6)
 
     def _build_setup(self):
         self._frame_setup = tk.Frame(self.container)
@@ -221,7 +377,7 @@ class HandheldApp(tk.Tk):
             row_btns,
             text="Atrás",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("home"),
+            command=lambda: self._show_frame("connect"),
         ).pack(side="left", padx=8)
 
         self.btn_to_scan = ttk.Button(
@@ -248,6 +404,13 @@ class HandheldApp(tk.Tk):
 
         top = tk.Frame(self._frame_scan)
         top.pack(fill="x", padx=10, pady=(6, 2))
+
+        tk.Label(
+            top,
+            text="Precarga lista — inicia el pistoleo cuando quieras",
+            font=("", 8, "bold"),
+            fg="#2E7D32",
+        ).pack(anchor="w", fill="x")
 
         self.scan_line_location = tk.StringVar(value="Ubicación: —")
         self.scan_line_time = tk.StringVar(value="Tiempo: 0.0 s")
@@ -301,7 +464,7 @@ class HandheldApp(tk.Tk):
 
         self.btn_begin_pistol = tk.Button(
             row_pistol,
-            text="Iniciar pistoleo",
+            text="Presionar Trigger",
             font=("", 12, "bold"),
             bg="#2E7D32",
             fg="white",
@@ -352,7 +515,7 @@ class HandheldApp(tk.Tk):
         head = tk.Frame(self._frame_result)
         head.pack(fill="x", padx=10, pady=(8, 4))
 
-        self.result_line_location = tk.StringVar(value="Ubicación: —")
+        self.result_line_location = tk.StringVar(value="Ubicación: ")
         self.result_line_stats = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
 
         tk.Label(head, textvariable=self.result_line_location, font=("", 10, "bold"), anchor="w").pack(fill="x")
@@ -390,7 +553,7 @@ class HandheldApp(tk.Tk):
         self.tree.configure(yscrollcommand=vsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
-
+        
         self.tree.tag_configure("found", background="#F4F4F4")
         self.tree.tag_configure("missing", background="#FDECEC")
         self.tree.tag_configure("new", background="#FFF6D6")
@@ -406,9 +569,22 @@ class HandheldApp(tk.Tk):
         row = tk.Frame(self._frame_result)
         row.pack(fill="x", pady=(6, 10))
 
-        ttk.Button(row, text="Nuevo escaneo", style="HandheldBig.TButton", command=self._result_new_scan).pack(
-            fill="x", padx=12, ipadx=8, ipady=4
-        )
+        btns = tk.Frame(row)
+        btns.pack(fill="x", padx=12)
+
+        ttk.Button(
+            btns,
+            text="Nuevo escaneo",
+            style="HandheldBig.TButton",
+            command=self._result_new_scan,
+        ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
+
+        ttk.Button(
+            btns,
+            text="Menú",
+            style="HandheldBig.TButton",
+            command=self._go_menu_from_result,
+        ).pack(side="right", fill="x", expand=True, ipadx=8, ipady=4, padx=(6, 0))
 
     def _build_detail(self):
         self._frame_detail = tk.Frame(self.container)
@@ -440,6 +616,96 @@ class HandheldApp(tk.Tk):
             style="HandheldBig.TButton",
             command=lambda: self._show_frame("result"),
         ).pack(side="bottom", pady=16, ipadx=16, ipady=6)
+
+        ttk.Button(
+            self._frame_detail,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._go_menu_from_result,
+        ).pack(side="bottom", pady=(0, 10), ipadx=10, ipady=2)
+
+    def _go_menu_from_result(self):
+        """Salir del flujo de inventario a menú principal."""
+        self._cancel_pending_pistol_start()
+        self._scanner.resume()
+        self._scanner.stop()
+        self._stop_scan_timer()
+        self._set_scan_controls_reading(False)
+        self._show_frame("menu")
+
+    def _build_rastreo(self):
+        self._frame_rastreo = tk.Frame(self.container)
+        ttk.Button(
+            self._frame_rastreo,
+            text="← Menú",
+            style="Handheld.TButton",
+            command=lambda: self._show_frame("menu"),
+        ).pack(anchor="w", padx=8, pady=6)
+        tk.Label(
+            self._frame_rastreo,
+            text="Rastrear activo",
+            font=("", 14, "bold"),
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+        tk.Label(
+            self._frame_rastreo,
+            text="Pendiente: buscar un EPC y mostrar su ubicación o historial. La lógica se conectará al catálogo o al lector según diseño.",
+            font=("", 9),
+            wraplength=440,
+            justify="left",
+            fg="#444",
+        ).pack(anchor="w", padx=12, pady=4)
+
+    def _build_escritura(self):
+        self._frame_escritura = tk.Frame(self.container)
+        ttk.Button(
+            self._frame_escritura,
+            text="← Menú",
+            style="Handheld.TButton",
+            command=lambda: self._show_frame("menu"),
+        ).pack(anchor="w", padx=8, pady=6)
+        tk.Label(
+            self._frame_escritura,
+            text="Escribir tag",
+            font=("", 14, "bold"),
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+        tk.Label(
+            self._frame_escritura,
+            text="Pendiente: programación de EPC en etiquetas (R200 u otro comando). Aquí irá la secuencia de escritura.",
+            font=("", 9),
+            wraplength=440,
+            justify="left",
+            fg="#444",
+        ).pack(anchor="w", padx=12, pady=4)
+
+    def _build_hid(self):
+        """Modo pistola como teclado Bluetooth: sin inventario en esta pantalla (flujograma: uso con laptop + web)."""
+        self._frame_hid = tk.Frame(self.container)
+        ttk.Button(
+            self._frame_hid,
+            text="← Menú",
+            style="Handheld.TButton",
+            command=lambda: self._show_frame("menu"),
+        ).pack(anchor="w", padx=8, pady=6)
+        tk.Label(
+            self._frame_hid,
+            text="Modo teclado (Bluetooth)",
+            font=("", 14, "bold"),
+        ).pack(anchor="w", padx=12, pady=(0, 6))
+        tk.Label(
+            self._frame_hid,
+            text="La pistola envía códigos a la laptop como lector de barras. Empareja Windows con la Pi y abre el módulo web en el navegador en la laptop.",
+            font=("", 9),
+            wraplength=440,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=2)
+        tk.Label(
+            self._frame_hid,
+            text="En la Pi: servicio BLE (p. ej. gatt_server_rfid en pi_ble_hid). Esta pantalla no inicia el Bluetooth: solo indica el modo operativo.",
+            font=("", 8),
+            wraplength=440,
+            justify="left",
+            fg="#666",
+        ).pack(anchor="w", padx=12, pady=(6, 4))
 
     def _legend_chip(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")

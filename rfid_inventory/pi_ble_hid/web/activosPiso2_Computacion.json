@@ -1,0 +1,717 @@
+[
+  {
+    "idDetalle": 39699,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000358",
+      "descripcion": "Escritorio de madera p/computadora c/librero  48 X 36\"",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39731,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000370",
+      "descripcion": "Escritorio p/computadora c/ 5 cajones frentes de encino",
+      "idUbicacion": 631,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA SUR - Piso: 1 - Departamento: MICROBIOLOGIA EXPERIMENTAL - Cubo: 101 -  SubCubo: 1",
+      "nombreResponsable": "3502 - RAMOS3502 RIOS3502 MANUEL3502"
+    }
+  },
+  {
+    "idDetalle": 39697,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000396",
+      "descripcion": "Mesa p/computadora 6x30x29 c/tabla p/teclado",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39718,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000468",
+      "descripcion": "Escritorio c/librero en madera color claro y porta impresora 48 X 36\"",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39738,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000481",
+      "descripcion": "Librero del escritorio de madera p/estudiantes  48 X 30\"",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "756 - GUTIERREZ756 CRUZ756 ANDREA756"
+    }
+  },
+  {
+    "idDetalle": 39700,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000483",
+      "descripcion": "Librero del escritorio p/estudiantes",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39751,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000486",
+      "descripcion": "Escritorio c/librero en madera color claro y porta impresora  48 X 36\"",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "756 - GUTIERREZ756 CRUZ756 ANDREA756"
+    }
+  },
+  {
+    "idDetalle": 39745,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001513",
+      "descripcion": "Camara digital con accesorios",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39742,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001746",
+      "descripcion": "Archivero lateral de 4 cajones color beige",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39727,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001807",
+      "descripcion": "Mesa redonda de encino de 107 cm",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39746,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001950",
+      "descripcion": "Camara digital",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39725,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002466",
+      "descripcion": "Brazo rob¿tico con controlador",
+      "idUbicacion": 258,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 3 - Departamento: ELECTRONICA Y TELECOMUNICACIONES - Cubo: 324 - Area: Lab. de Control",
+      "nombreResponsable": "715 - MEDINA715 CRUZ715 BRENDA715"
+    }
+  },
+  {
+    "idDetalle": 39726,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002471",
+      "descripcion": "Robot Movil",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39752,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002913",
+      "descripcion": "Librero de madera 12 divisiones color barniz",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39692,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003466",
+      "descripcion": "Panel Calibrador CFK",
+      "idUbicacion": 1228,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: CIENCIAS DE LA COMPUTACION - Piso: 2 - Departamento: POSGRADO EN CIENCIAS DE LA COMPUTACIÓN - Cubo: 102 - Area: Evovision SP",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39744,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003653",
+      "descripcion": "Paralelo 3 Jaw",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39701,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003690",
+      "descripcion": "CPU Dell",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39733,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003696",
+      "descripcion": "Silla secretarial color negra",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39724,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003698",
+      "descripcion": "Silla secretarial color negra",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39729,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003798",
+      "descripcion": "Computadora personal Dell",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39689,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003846",
+      "descripcion": "Camara digital Canon",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39728,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA20131565",
+      "descripcion": "Robot humanoide",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39696,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA20141965",
+      "descripcion": "UPS",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39712,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA20142406",
+      "descripcion": "Monitor de 27\"",
+      "idUbicacion": 764,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 133",
+      "nombreResponsable": "3660 - REYES3660 CRUZ3660 MARIA DEL CARMEN3660"
+    }
+  },
+  {
+    "idDetalle": 39720,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA20142420",
+      "descripcion": "Monitor de 27\"",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "1387 - SANCHEZ1387 GUTIERREZ1387 ROSA1387"
+    }
+  },
+  {
+    "idDetalle": 39710,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080475",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39732,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080484",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39736,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080489",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 750,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 120",
+      "nombreResponsable": "3630 - LOPEZ3630 DIAZ3630 ANDREA3630"
+    }
+  },
+  {
+    "idDetalle": 39705,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080531",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39716,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080535",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39714,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080536",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39707,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080537",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39702,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080552",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 759,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 129",
+      "nombreResponsable": "2064 - SANCHEZ2064 FLORES2064 LAURA2064"
+    }
+  },
+  {
+    "idDetalle": 39715,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080553",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 762,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 132",
+      "nombreResponsable": "3340 - GOMEZ3340 LOPEZ3340 JUANA3340"
+    }
+  },
+  {
+    "idDetalle": 39739,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080554",
+      "descripcion": "Silla secretarial color negro",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39743,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20080591",
+      "descripcion": "Locker 2 puertas metalico",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39717,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20100683",
+      "descripcion": "Televisión",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39688,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20110922",
+      "descripcion": "Videocamara digital",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39713,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120578",
+      "descripcion": "CPU",
+      "idUbicacion": 748,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 118",
+      "nombreResponsable": "1801 - TORRES1801 MEDINA1801 MARGARITA1801"
+    }
+  },
+  {
+    "idDetalle": 39719,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120579",
+      "descripcion": "CPU",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39698,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120580",
+      "descripcion": "CPU",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39722,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120581",
+      "descripcion": "CPU",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "2080 - HERNANDEZ2080 FLORES2080 REGINA2080"
+    }
+  },
+  {
+    "idDetalle": 39695,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120582",
+      "descripcion": "CPU",
+      "idUbicacion": 748,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 118",
+      "nombreResponsable": "1801 - TORRES1801 MEDINA1801 MARGARITA1801"
+    }
+  },
+  {
+    "idDetalle": 39711,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120583",
+      "descripcion": "Monitor 23\"",
+      "idUbicacion": 908,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 309",
+      "nombreResponsable": "3650 - JIMENEZ3650 RAMOS3650 JULIAN3650"
+    }
+  },
+  {
+    "idDetalle": 39704,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120584",
+      "descripcion": "Monitor 23\"",
+      "idUbicacion": 975,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 2 - Departamento: INNOVACION BIOMEDICA - Cubo: 204",
+      "nombreResponsable": "633 - MARTINEZ633 DIAZ633 SEBASTIAN633"
+    }
+  },
+  {
+    "idDetalle": 39703,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120585",
+      "descripcion": "Monitor 23\"",
+      "idUbicacion": 975,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 2 - Departamento: INNOVACION BIOMEDICA - Cubo: 204",
+      "nombreResponsable": "633 - MARTINEZ633 DIAZ633 SEBASTIAN633"
+    }
+  },
+  {
+    "idDetalle": 39735,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120587",
+      "descripcion": "Monitor 23\"",
+      "idUbicacion": 975,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 2 - Departamento: INNOVACION BIOMEDICA - Cubo: 204",
+      "nombreResponsable": "633 - MARTINEZ633 DIAZ633 SEBASTIAN633"
+    }
+  },
+  {
+    "idDetalle": 39693,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20120729",
+      "descripcion": "Robot",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39730,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20140349",
+      "descripcion": "CPU",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39723,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20140350",
+      "descripcion": "Monitor de 24\"",
+      "idUbicacion": 975,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 2 - Departamento: INNOVACION BIOMEDICA - Cubo: 204",
+      "nombreResponsable": "633 - MARTINEZ633 DIAZ633 SEBASTIAN633"
+    }
+  },
+  {
+    "idDetalle": 39721,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20141407",
+      "descripcion": "Monitor 24\"",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39734,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20150928",
+      "descripcion": "Telefono IP",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39690,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20161050",
+      "descripcion": "UPS",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39709,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20161051",
+      "descripcion": "UPS",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39741,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20161186",
+      "descripcion": "Impresora",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39706,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20170088",
+      "descripcion": "CPU",
+      "idUbicacion": 785,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 3 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 307 - Area: Estudiantes",
+      "nombreResponsable": "3595 - RODRIGUEZ501541 GONZALEZ501541 JESUS501541"
+    }
+  },
+  {
+    "idDetalle": 39708,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20170089",
+      "descripcion": "CPU",
+      "idUbicacion": 764,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 133",
+      "nombreResponsable": "3660 - REYES3660 CRUZ3660 MARIA DEL CARMEN3660"
+    }
+  },
+  {
+    "idDetalle": 39691,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20180194",
+      "descripcion": "Ipad Pro\n",
+      "idUbicacion": 753,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 123",
+      "nombreResponsable": "616 - RAMOS616 LOPEZ616 JESUS616"
+    }
+  },
+  {
+    "idDetalle": 39748,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190241",
+      "descripcion": "Estacion de trabajo (incluye monitor TE20190246)",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "1387 - SANCHEZ1387 GUTIERREZ1387 ROSA1387"
+    }
+  },
+  {
+    "idDetalle": 39749,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190242",
+      "descripcion": "Estacion de trabajo (incluye monitor TE20190245)",
+      "idUbicacion": 764,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 133",
+      "nombreResponsable": "3660 - REYES3660 CRUZ3660 MARIA DEL CARMEN3660"
+    }
+  },
+  {
+    "idDetalle": 39737,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190243",
+      "descripcion": "Estacion de trabajo (incluye monitor TE20190244)",
+      "idUbicacion": 764,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 133",
+      "nombreResponsable": "3660 - REYES3660 CRUZ3660 MARIA DEL CARMEN3660"
+    }
+  },
+  {
+    "idDetalle": 39740,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190244",
+      "descripcion": "Monitor (en estación de trabajo TE20190243)",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39750,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190245",
+      "descripcion": "Monitor (en estación de trabajo TE20190242)",
+      "idUbicacion": 766,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 108 - Area: Lab. Procesamiento de Imagenes",
+      "nombreResponsable": "1387 - SANCHEZ1387 GUTIERREZ1387 ROSA1387"
+    }
+  },
+  {
+    "idDetalle": 39747,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20190246",
+      "descripcion": "Monitor (en estación de trabajo TE20190241)",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39694,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "TE20210104",
+      "descripcion": "Sensor de CO2, temperatura, humedad y presion",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  }
+]
