@@ -446,8 +446,8 @@ class HandheldApp(tk.Tk):
         vsb_s.pack(side="right", fill="y")
 
         self.scan_tree.tag_configure("found", background="#F4F4F4")
-        self.scan_tree.tag_configure("missing", background="#FDECEC")
-        self.scan_tree.tag_configure("new", background="#FFF6D6")
+        self.scan_tree.tag_configure("missing", background="#FF7F7F")
+        self.scan_tree.tag_configure("new", background="#90EE90")
 
         tk.Label(
             self._frame_scan,
@@ -555,16 +555,16 @@ class HandheldApp(tk.Tk):
         vsb.pack(side="right", fill="y")
         
         self.tree.tag_configure("found", background="#F4F4F4")
-        self.tree.tag_configure("missing", background="#FDECEC")
-        self.tree.tag_configure("new", background="#FFF6D6")
+        self.tree.tag_configure("missing", background="#FF7F7F")
+        self.tree.tag_configure("new", background="#90EE90")
 
         self.tree.bind("<Double-1>", self._on_result_double_click)
 
         legend = tk.Frame(self._frame_result)
         legend.pack(fill="x", padx=8)
         self._legend_chip(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "NO ESCANEADO", "#FDECEC").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "ACTIVO NUEVO", "#FFF6D6").pack(side="left")
+        self._legend_chip(legend, "NO ESCANEADO", "#FF7F7F").pack(side="left", padx=(0, 4))
+        self._legend_chip(legend, "ACTIVO NUEVO", "#90EE90").pack(side="left")
 
         row = tk.Frame(self._frame_result)
         row.pack(fill="x", pady=(6, 10))
@@ -930,7 +930,7 @@ class HandheldApp(tk.Tk):
 
         self.result_line_location.set("Ubicación: {0}".format(loc))
         self.result_line_stats.set(
-            "Esperados: {0} | OK: {1} | Faltan: {2} | Nuevos: {3}".format(
+            "Esperados: {0} | ENCONTRADOS: {1} | Faltan: {2} | Nuevos: {3}".format(
                 len(expected),
                 len(r.encontrados),
                 len(r.faltantes),
