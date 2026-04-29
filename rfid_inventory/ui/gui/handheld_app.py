@@ -53,33 +53,103 @@ def _parse_nombre_ubicacion(nombre: str) -> tuple[str, str]:
     return (edificio, sala)
 
 
+def _read_json_first(paths: list[str]):
+    """Lee el primer JSON existente y válido de una lista de rutas."""
+    for p in paths:
+        if not p or not os.path.isfile(p):
+            continue
+        try:
+            return json.loads(open(p, "r", encoding="utf-8").read())
+        except Exception:
+            continue
+    return None
+
+
+def _sala_from_ubic_row(u: dict) -> str:
+    piso = u.get("piso")
+    cubo = u.get("cubo")
+    subcubo = u.get("subcubo")
+    area = u.get("area")
+    sala_bits = []
+    if piso:
+        sala_bits.append(f"Piso {piso}")
+    if cubo:
+        sala_bits.append(f"Cubo {cubo}")
+    if subcubo:
+        sala_bits.append(f"SubCubo {subcubo}")
+    if area:
+        sala_bits.append(str(area))
+    nombre_u = u.get("nombreUbicacion")
+    return " · ".join(sala_bits) if sala_bits else (str(nombre_u) if nombre_u else "(Sin sala)")
+
+
 def _load_locations_nested_from_json() -> dict:
-    """edificio -> sala -> lista de EPC esperados (hex). Usa los JSON de ejemplo si existen."""
+    """edificio -> sala -> lista de EPC esperados (hex).
+
+    Fuente de datos:
+    - Ubicaciones: `ubicacionesComputacion.json`
+    - Activos por ubicación: `activosPiso2_Computacion.json`
+
+    Relación:
+    - Preferentemente por `idUbicacion` (en activos) contra `idUbicacion` (en ubicaciones).
+    - Si no existe match, cae a parsear `nombreUbicacion` desde el JSON de activos.
+    """
     here = os.path.dirname(os.path.abspath(__file__))
     # rfid_inventory/ui/gui -> rfid_inventory -> pi_ble_hid/web
     web_dir = os.path.abspath(os.path.join(here, "..", "..", "pi_ble_hid", "web"))
     data_dir = os.path.abspath(os.path.join(here, "..", "..", "data", "catalog_ejemplo"))
-    candidates = [
+
+    ubic_paths = [
+        os.path.join(web_dir, "ubicacionesComputacion.json"),
+        os.path.join(data_dir, "ubicacionesComputacion.json"),
+    ]
+    activos_paths = [
         os.path.join(web_dir, "activosPiso2_Computacion.json"),
         os.path.join(data_dir, "activosPiso2_Computacion.json"),
     ]
-    activos_path = next((p for p in candidates if os.path.isfile(p)), None)
-    if not activos_path:
-        return {}
-    try:
-        rows = json.loads(open(activos_path, "r", encoding="utf-8").read())
-    except Exception:
-        return {}
+
+    ubic_rows = _read_json_first(ubic_paths) or []
+    activo_rows = _read_json_first(activos_paths) or []
+    if not isinstance(ubic_rows, list):
+        ubic_rows = []
+    if not isinstance(activo_rows, list):
+        activo_rows = []
+
+    ubic_by_id: dict[int, dict] = {}
+    for u in ubic_rows:
+        if not isinstance(u, dict):
+            continue
+        uid = u.get("idUbicacion")
+        if isinstance(uid, int):
+            ubic_by_id[uid] = u
 
     out: dict[str, dict[str, list[str]]] = {}
     seen_per_room: dict[tuple[str, str], set[str]] = {}
-    for r in rows:
+
+    # 1) Primero: publica TODAS las ubicaciones del JSON, aunque no tengan activos.
+    for uid, u in ubic_by_id.items():
+        edif = u.get("edificio") or "(Sin edificio)"
+        sala = _sala_from_ubic_row(u)
+        if edif not in out:
+            out[edif] = {}
+        out[edif].setdefault(sala, [])
+        seen_per_room.setdefault((edif, sala), set())
+
+    # 2) Luego: agrega activos que hagan match por idUbicacion.
+    for r in activo_rows:
         a = (r or {}).get("activo") or {}
         code = a.get("activo")
-        nombre_u = a.get("nombreUbicacion")
-        if not code or not nombre_u:
+        if not code:
             continue
-        edif, sala = _parse_nombre_ubicacion(nombre_u)
+
+        uid = a.get("idUbicacion")
+        if not (isinstance(uid, int) and uid in ubic_by_id):
+            # Mantener "solo ubicaciones del JSON": si no hay match, no inventamos ubicación.
+            continue
+        u = ubic_by_id[uid]
+        edif = u.get("edificio") or "(Sin edificio)"
+        sala = _sala_from_ubic_row(u)
+
         key = (edif, sala)
         if key not in seen_per_room:
             seen_per_room[key] = set()

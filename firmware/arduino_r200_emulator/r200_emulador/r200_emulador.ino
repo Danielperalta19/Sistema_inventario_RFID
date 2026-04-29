@@ -37,8 +37,8 @@ static const uint16_t PC_DEFAULT = 0x3000;
 static const uint16_t CRC_DEFAULT = 0x0000;
 
 static const uint16_t TAG_GAP_MS = 15;
-static const uint8_t MULTI_MIN = 6;
-static const uint8_t MULTI_MAX = 22;
+static const uint8_t MULTI_MIN = 7;
+static const uint8_t MULTI_MAX = 15;
 
 static uint8_t checksum(uint8_t type, uint8_t cmd, uint16_t len, const uint8_t* params) {
   uint32_t s = 0;
@@ -74,11 +74,10 @@ static uint8_t rssi() {
   return (uint8_t)random((int)RSSI_MIN, (int)RSSI_MAX + 1);
 }
 
-static const uint8_t* nextEpc() {
-  static uint8_t idx = 0;
-  const uint8_t* out = EPC_LIST[idx];
-  idx = (uint8_t)((idx + 1) % EPC_COUNT);
-  return out;
+static const uint8_t* randomEpc() {
+  if (EPC_COUNT == 0) return EPC_LIST[0];
+  uint8_t idx = (uint8_t)random((long)0, (long)EPC_COUNT);
+  return EPC_LIST[idx];
 }
 
 static void sendTagNotify(const uint8_t epc12[12]) {
@@ -173,10 +172,13 @@ static void handle(const InFrame& f) {
       sendError(0x15);
       return;
     }
-    uint8_t n = (uint8_t)random(MULTI_MIN, (uint8_t)(MULTI_MAX + 1));
+    // Ráfagas variables (7..15 típicamente). A veces 0 para simular "no vi nada".
+    uint8_t n = (uint8_t)random(0, (uint8_t)(MULTI_MAX + 1));
+    if (n > 0 && n < MULTI_MIN) n = (uint8_t)random(MULTI_MIN, (uint8_t)(MULTI_MAX + 1));
     for (uint8_t i = 0; i < n; i++) {
-      sendTagNotify(nextEpc());
-      delay(TAG_GAP_MS);
+      sendTagNotify(randomEpc());
+      // Gap ligeramente variable para que se sienta menos "perfecto".
+      delay((uint16_t)random((long)10, (long)(TAG_GAP_MS + 20)));
     }
     return;
   }
