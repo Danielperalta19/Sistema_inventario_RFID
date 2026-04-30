@@ -115,7 +115,6 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-<<<<<<< HEAD
   <title>Prueba — inventario (scanner)</title>
   <style>
     body { font-family: sans-serif; margin: 1rem; max-width: 50em; }
@@ -165,50 +164,11 @@
 
   <h2>Log (todo lo escuchado)</h2>
   <pre id="log" style="max-height: 12em"></pre>
-=======
-  <title>Prueba lector (ScannerDetection en document)</title>
-  <style>
-    body { font-family: sans-serif; margin: 1rem; max-width: 40rem; }
-    p { color: #444; font-size: 14px; }
-    ul { list-style: none; padding: 0; margin: 0; font-family: Consolas, monospace; font-size: 13px; }
-    li { padding: 4px 0; border-bottom: 1px solid #eee; }
-    .muted { color: #666; font-size: 12px; }
-    .ok { color: #1b5e20; font-size: 12px; }
-    .warn { color: #b71c1c; font-size: 12px; }
-    .vista-box { margin: 1rem 0; }
-    .vista-box label { display: block; font-size: 12px; margin-bottom: 4px; color: #333; }
-    .vista-box input[readonly] {
-      width: 100%;
-      max-width: 36rem;
-      padding: 8px 10px;
-      font-family: Consolas, "Courier New", monospace;
-      font-size: 14px;
-      box-sizing: border-box;
-      border: 1px solid #888;
-      background: #fafafa;
-    }
-  </style>
-</head>
-<body>
-  <h1>Prueba de escaneo</h1>
-  <p>
-    <strong>jQuery Scanner Detection</strong> en <code>$(document)</code>: escucha en el documento, <strong>no hace falta</strong> hacer foco en un campo.
-  </p>
-  <p class="muted">Cada escaneo termina con <strong>Enter o Tab</strong> (como lector en modo teclado).</p>
-  <p id="bootMsg" class="muted">Cargando…</p>
-  <div class="vista-box">
-    <label for="vistaLectura">Texto que recibe la página (lector en modo teclado) — <span class="muted">solo lectura; no hace falta foco aquí</span></label>
-    <input type="text" id="vistaLectura" readonly tabindex="-1" placeholder="(codigo de barras,completa con Enter/Tab)" spellcheck="false" autocomplete="off" />
-  </div>
-  <h2 style="font-size: 1rem; margin-top: 1.2rem">Historial de lecturas</h2>
-  <ul id="registro"></ul>
->>>>>>> 10a45b9 (App completa)
 
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="jquery.scannerdetection.js"></script>
   <script>
     (function () {
-<<<<<<< HEAD
       var ubicacion = null;
       var activos = Object.create(null);
 
@@ -284,123 +244,6 @@
           })(muestras[i]);
         }
         actualizar();
-=======
-      var ul = document.getElementById("registro");
-      var vista = document.getElementById("vistaLectura");
-      var n = 0;
-      var lastV = "";
-      var lastT = 0;
-      var partial = "";
-
-      function agregar(codigo) {
-        codigo = (codigo || "").trim();
-        if (!codigo) return;
-        n += 1;
-        var li = document.createElement("li");
-        li.textContent = n + ". " + new Date().toLocaleTimeString() + "  →  " + codigo;
-        ul.insertBefore(li, ul.firstChild);
-        while (ul.children.length > 200) {
-          ul.removeChild(ul.lastChild);
-        }
-      }
-
-      function setVista(texto) {
-        if (vista) vista.value = texto == null ? "" : String(texto);
-      }
-
-      function agregarUnico(codigo) {
-        codigo = (codigo || "").trim();
-        if (!codigo) return;
-        var t = Date.now();
-        if (codigo === lastV && t - lastT < 120) return;
-        lastV = codigo;
-        lastT = t;
-        setVista(codigo);
-        agregar(codigo);
-      }
-
-      function setBoot(msg, ok) {
-        var e = document.getElementById("bootMsg");
-        if (!e) return;
-        e.textContent = msg;
-        e.className = ok ? "ok" : "warn";
-      }
-
-      /* Respaldo: lector en modo teclado (sufijo Enter/Tab) sin depender del algoritmo del plugin. */
-      function startWedgeFallback() {
-        var buf = "";
-        window.addEventListener(
-          "keydown",
-          function (e) {
-                var tgt = e.target;
-            if (
-              tgt &&
-              (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable) &&
-              tgt.id !== "vistaLectura"
-            )
-              return;
-            if (e.repeat) return;
-            if (e.key === "Enter" || e.keyCode === 13) {
-              if (buf.length) {
-                setVista(buf);
-                agregarUnico(buf);
-                buf = "";
-              }
-              return;
-            }
-            if (e.keyCode === 9) {
-              e.preventDefault();
-              if (buf.length) {
-                setVista(buf);
-                agregarUnico(buf);
-                buf = "";
-              }
-              return;
-            }
-            if (e.key && e.key.length === 1) {
-              buf += e.key;
-              setVista(buf);
-            }
-          },
-          true
-        );
-      }
-
-      $(function () {
-        if (typeof $.fn.scannerDetection !== "function") {
-          setBoot("Falta jquery.scannerdetection.js (debe estar junto a este HTML). Respaldo de teclado activo.", false);
-          startWedgeFallback();
-          return;
-        }
-        setBoot("Plugin jQuery ScannerDetection ACTIVO. Haz clic en la página y escanea.", true);
-        $(document).scannerDetection({
-          minLength: 1,
-          timeBeforeScanTest: 200,
-          avgTimeByChar: 100,
-          onReceive: function (e) {
-            var c = e.which;
-            if (c === 13 || c === 9) return;
-            var ch = String.fromCharCode(c);
-            if (ch) {
-              partial += ch;
-              setVista(partial);
-            }
-          },
-          onComplete: function (s) {
-            partial = "";
-            agregarUnico(s);
-          },
-          onError: function (s) {
-            partial = "";
-            if (s && String(s).trim().length) {
-              setVista(String(s).trim());
-              agregarUnico(String(s));
-            } else {
-              setVista("");
-            }
-          },
-        });
->>>>>>> 10a45b9 (App completa)
       });
     })();
   </script>

@@ -343,10 +343,11 @@ class HandheldApp(tk.Tk):
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("Treeview", rowheight=20)
-        style.configure("Treeview.Heading", font=("", 9, "bold"))
-        style.configure("Handheld.TButton", font=("", 11))
-        style.configure("HandheldBig.TButton", font=("", 13))
+        # Ajuste compacto para 480×320 (Waveshare): balance legibilidad/espacio.
+        style.configure("Treeview", rowheight=18)
+        style.configure("Treeview.Heading", font=("", 8, "bold"))
+        style.configure("Handheld.TButton", font=("", 10))
+        style.configure("HandheldBig.TButton", font=("", 12))
 
     def _show_frame(self, name):
         for w in self.container.winfo_children():
@@ -376,14 +377,14 @@ class HandheldApp(tk.Tk):
         tk.Label(
             self._frame_menu,
             text="Sistema de Inventario RFID",
-            font=("", 16, "bold"),
-        ).pack(pady=(10, 4))
+            font=("", 14, "bold"),
+        ).pack(pady=(6, 2))
         tk.Label(
             self._frame_menu,
             text="Pantalla 480×320 · elige una opción",
-            font=("", 9),
+            font=("", 8),
             fg="#555",
-        ).pack(pady=(0, 8))
+        ).pack(pady=(0, 6))
 
         def big(parent, text, command):
             b = ttk.Button(
@@ -392,7 +393,7 @@ class HandheldApp(tk.Tk):
                 style="HandheldBig.TButton",
                 command=command,
             )
-            b.pack(fill="x", padx=16, pady=4, ipady=6)
+            b.pack(fill="x", padx=14, pady=3, ipady=4)
             return b
 
         big(
@@ -425,24 +426,24 @@ class HandheldApp(tk.Tk):
             text="← Menú",
             style="Handheld.TButton",
             command=lambda: self._show_frame("menu"),
-        ).pack(anchor="w", padx=8, pady=(6, 0))
+        ).pack(anchor="w", padx=8, pady=(4, 0))
 
         tk.Label(
             self._frame_connect,
             text="Inventario en ubicación",
-            font=("", 15, "bold"),
-        ).pack(pady=(4, 4))
+            font=("", 13, "bold"),
+        ).pack(pady=(3, 2))
 
         tk.Label(
             self._frame_connect,
             text="Conecta el lector RFID al puerto",
-            font=("", 9),
+            font=("", 8),
             wraplength=440,
             justify="center",
-        ).pack(pady=(0, 8))
+        ).pack(pady=(0, 6))
 
         row = tk.Frame(self._frame_connect)
-        row.pack(fill="x", padx=14, pady=4)
+        row.pack(fill="x", padx=12, pady=3)
 
         tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
         # Default: si estamos en Pi, sugiere /dev/serial/by-id; si no, COM5.
@@ -472,8 +473,8 @@ class HandheldApp(tk.Tk):
 
         self.home_status_var = tk.StringVar(value="Lector: desconectado")
         tk.Label(
-            self._frame_connect, textvariable=self.home_status_var, font=("", 9), wraplength=440, justify="center"
-        ).pack(fill="x", padx=12, pady=(8, 8))
+            self._frame_connect, textvariable=self.home_status_var, font=("", 8), wraplength=440, justify="center"
+        ).pack(fill="x", padx=12, pady=(6, 6))
 
         self.btn_continue = ttk.Button(
             self._frame_connect,
@@ -487,8 +488,8 @@ class HandheldApp(tk.Tk):
     def _build_setup(self):
         self._frame_setup = tk.Frame(self.container)
 
-        tk.Label(self._frame_setup, text="Ubicación del inventario", font=("", 12, "bold")).pack(
-            anchor="w", padx=12, pady=(12, 8)
+        tk.Label(self._frame_setup, text="Ubicación del inventario", font=("", 11, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 6)
         )
 
         row_b = tk.Frame(self._frame_setup)
@@ -507,7 +508,7 @@ class HandheldApp(tk.Tk):
         self.building_combo.pack(fill="x", pady=(2, 0))
 
         row_r = tk.Frame(self._frame_setup)
-        row_r.pack(fill="x", padx=12, pady=8)
+        row_r.pack(fill="x", padx=12, pady=6)
         tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
         self.room_var = tk.StringVar()
         first_rooms = sorted(list(self._nested_locations[buildings[0]].keys()))
@@ -526,13 +527,13 @@ class HandheldApp(tk.Tk):
         self.room_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_setup_hint())
 
         self.setup_hint_var = tk.StringVar(value="")
-        tk.Label(self._frame_setup, textvariable=self.setup_hint_var, font=("", 9), fg="#444", wraplength=440).pack(
-            fill="x", padx=12, pady=(4, 8)
+        tk.Label(self._frame_setup, textvariable=self.setup_hint_var, font=("", 8), fg="#444", wraplength=440).pack(
+            fill="x", padx=12, pady=(3, 6)
         )
         self._refresh_setup_hint()
 
         row_btns = tk.Frame(self._frame_setup)
-        row_btns.pack(fill="x", side="bottom", pady=12)
+        row_btns.pack(fill="x", side="bottom", pady=8)
 
         ttk.Button(
             row_btns,
@@ -564,7 +565,7 @@ class HandheldApp(tk.Tk):
         self._frame_scan = tk.Frame(self.container)
 
         top = tk.Frame(self._frame_scan)
-        top.pack(fill="x", padx=10, pady=(6, 2))
+        top.pack(fill="x", padx=10, pady=(4, 2))
 
         tk.Label(
             top,
@@ -582,7 +583,7 @@ class HandheldApp(tk.Tk):
         tk.Label(top, textvariable=self.scan_line_counts, font=("", 9), anchor="w").pack(fill="x")
 
         mid = tk.Frame(self._frame_scan)
-        mid.pack(fill="both", expand=True, padx=8, pady=4)
+        mid.pack(fill="both", expand=True, padx=8, pady=3)
 
         tk.Label(mid, text="Activos (esperados en esta ubicación)", font=("", 9), fg="#444").pack(anchor="w")
 
@@ -593,7 +594,7 @@ class HandheldApp(tk.Tk):
             tree_wrap,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=5,
+            height=4,
         )
         self.scan_tree.heading("status", text="Estado")
         self.scan_tree.heading("epc", text="EPC")
@@ -618,15 +619,15 @@ class HandheldApp(tk.Tk):
         ).pack(anchor="w", padx=10, pady=(0, 0))
 
         self.listbox = tk.Listbox(self._frame_scan, height=self._LOG_MAX_LINES, font=("Consolas", 8))
-        self.listbox.pack(fill="x", padx=10, pady=4)
+        self.listbox.pack(fill="x", padx=10, pady=3)
 
         row_pistol = tk.Frame(self._frame_scan)
-        row_pistol.pack(fill="x", side="bottom", pady=(4, 4))
+        row_pistol.pack(fill="x", side="bottom", pady=(3, 3))
 
         self.btn_begin_pistol = tk.Button(
             row_pistol,
             text="Presionar Trigger",
-            font=("", 12, "bold"),
+            font=("", 11, "bold"),
             bg="#2E7D32",
             fg="white",
             activebackground="#1B5E20",
@@ -634,12 +635,12 @@ class HandheldApp(tk.Tk):
             relief="flat",
             command=self.begin_pistol_scan,
         )
-        self.btn_begin_pistol.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=10)
+        self.btn_begin_pistol.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=7)
 
         self.btn_stop = tk.Button(
             row_pistol,
             text="Detener",
-            font=("", 12, "bold"),
+            font=("", 11, "bold"),
             bg="#C62828",
             fg="white",
             activebackground="#B71C1C",
@@ -647,10 +648,10 @@ class HandheldApp(tk.Tk):
             relief="flat",
             command=self.stop_scan,
         )
-        self.btn_stop.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=10)
+        self.btn_stop.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=7)
 
         row = tk.Frame(self._frame_scan)
-        row.pack(fill="x", side="bottom", pady=(0, 8))
+        row.pack(fill="x", side="bottom", pady=(0, 6))
 
         self.btn_pause = ttk.Button(
             row,
