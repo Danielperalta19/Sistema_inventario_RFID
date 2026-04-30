@@ -449,7 +449,7 @@ class HandheldApp(tk.Tk):
         # Default: si estamos en Pi, sugiere /dev/serial/by-id; si no, COM5.
         default_port = self._suggest_pi_serial_port() if os.name == "posix" else "COM5"
         self.port_var = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
-        tk.Entry(row, textvariable=self.port_var, width=18, font=("", 10)).pack(side="left", padx=(4, 10))
+        tk.Entry(row, textvariable=self.port_var, width=20, font=("", 10)).pack(side="left", padx=(4, 6))
 
         def set_windows_port():
             self.port_var.set("COM5")
@@ -461,15 +461,19 @@ class HandheldApp(tk.Tk):
             else:
                 self.port_var.set("/dev/ttyUSB0")
 
-        ttk.Button(row, text="Windows", style="Handheld.TButton", command=set_windows_port).pack(side="left", padx=(0, 6))
-        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=set_pi_port).pack(side="left", padx=(0, 6))
+        ttk.Button(row, text="Windows", style="Handheld.TButton", command=set_windows_port).pack(side="left", padx=(0, 4))
+        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=set_pi_port).pack(side="left", padx=(0, 0))
 
-        tk.Label(row, text="Baud:", font=("", 10)).pack(side="left")
+        # Segunda fila: baud + conectar (evita overflow horizontal en 480×320)
+        row2 = tk.Frame(self._frame_connect)
+        row2.pack(fill="x", padx=12, pady=(0, 3))
+
+        tk.Label(row2, text="Baud:", font=("", 10)).pack(side="left")
         self.baud_var = tk.StringVar(value="115200")
-        tk.Entry(row, textvariable=self.baud_var, width=7, font=("", 10)).pack(side="left", padx=(4, 10))
+        tk.Entry(row2, textvariable=self.baud_var, width=8, font=("", 10)).pack(side="left", padx=(4, 8))
 
-        self.btn_connect = ttk.Button(row, text="Conectar", command=self.connect, style="Handheld.TButton")
-        self.btn_connect.pack(side="left", padx=6)
+        self.btn_connect = ttk.Button(row2, text="Conectar", command=self.connect, style="HandheldBig.TButton")
+        self.btn_connect.pack(side="left", fill="x", expand=True, padx=(0, 0), ipady=2)
 
         self.home_status_var = tk.StringVar(value="Lector: desconectado")
         tk.Label(
