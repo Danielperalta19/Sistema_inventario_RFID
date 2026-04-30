@@ -22,12 +22,12 @@ class Scanner:
             self._seen.clear()
             self._last_rssi.clear()
 
-    def start(self, on_tag_read):
+    def start(self, on_tag_read, on_error=None):
         if self.is_running():
             return
         self._stop.clear()
         self._pause.clear()
-        self._thread = threading.Thread(target=self._loop, args=(on_tag_read,), daemon=True)
+        self._thread = threading.Thread(target=self._loop, args=(on_tag_read, on_error), daemon=True)
         self._thread.start()
 
     def stop(self):
@@ -52,11 +52,21 @@ class Scanner:
         with self._lock:
             return {"seen_epcs": set(self._seen), "last_rssi": dict(self._last_rssi)}
 
-    def _loop(self, on_tag_read):
+    def _loop(self, on_tag_read, on_error):
         while not self._stop.is_set():
             while self._pause.is_set() and not self._stop.is_set():
                 time.sleep(0.05)
-            tags = self._driver.read_tags_once()
+            try:
+                tags = self._driver.read_tags_once()
+            except Exception as e:
+                # Error de serial / desconexión / puerto ocupado, etc.
+                if callable(on_error):
+                    try:
+                        on_error(e)
+                    except Exception:
+                        pass
+                self._stop.set()
+                break
             for idx_in_batch, tag in enumerate(tags):
                 if self._stop.is_set():
                     break

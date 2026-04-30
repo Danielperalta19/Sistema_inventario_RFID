@@ -915,7 +915,33 @@ class HandheldApp(tk.Tk):
         self._scan_started_ms = int(self.tk.call("clock", "milliseconds"))
         self._start_scan_timer()
         self._scanner.resume()
-        self._scanner.start(on_tag_read=self._on_tag_read)
+        self._scanner.start(on_tag_read=self._on_tag_read, on_error=self._on_scan_error)
+
+    def _on_scan_error(self, e: Exception):
+        # Corre en hilo de Scanner; brincar a hilo UI con after()
+        def ui():
+            self._cancel_pending_pistol_start()
+            self._scanner.resume()
+            self._scanner.stop()
+            self._stop_scan_timer()
+            self._set_scan_controls_reading(False)
+            msg = (
+                "Se perdió la conexión con el lector (serial).\n\n"
+                f"Detalle: {e}\n\n"
+                "Causas típicas:\n"
+                "- Cable/OTG flojo o el Arduino se reinició\n"
+                "- Otro proceso está usando el puerto (p. ej. Monitor Serie / servicio)\n"
+                "- Puerto equivocado (/dev/ttyUSB0 vs /dev/ttyACM0)\n\n"
+                "Tip: prueba en terminal:\n"
+                "  ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null\n"
+                "  lsof /dev/ttyUSB0 2>/dev/null\n"
+            )
+            messagebox.showerror("Lector desconectado", msg)
+
+        try:
+            self.after(0, ui)
+        except Exception:
+            pass
 
     def connect(self):
         if self._driver.connected:
