@@ -306,6 +306,34 @@ class HandheldApp(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _suggest_pi_serial_port(self) -> str:
+        """Devuelve un puerto serial estable para Raspberry Pi (si existe).
+
+        Preferimos `/dev/serial/by-id/*` para evitar que cambie ttyUSB0/ttyUSB1.
+        """
+        if os.name != "posix":
+            return ""
+        try:
+            by_id = "/dev/serial/by-id"
+            if os.path.isdir(by_id):
+                entries = sorted(os.listdir(by_id))
+                for name in entries:
+                    p = os.path.join(by_id, name)
+                    if os.path.islink(p) or os.path.exists(p):
+                        return p
+            # fallback: ttyUSB*, luego ttyACM*
+            for i in range(0, 6):
+                p = f"/dev/ttyUSB{i}"
+                if os.path.exists(p):
+                    return p
+            for i in range(0, 6):
+                p = f"/dev/ttyACM{i}"
+                if os.path.exists(p):
+                    return p
+        except Exception:
+            pass
+        return ""
+
     def _location_key(self):
         return _location_label(self.building_var.get(), self.room_var.get())
 
@@ -417,8 +445,23 @@ class HandheldApp(tk.Tk):
         row.pack(fill="x", padx=14, pady=4)
 
         tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
-        self.port_var = tk.StringVar(value="COM5")
-        tk.Entry(row, textvariable=self.port_var, width=14, font=("", 10)).pack(side="left", padx=(4, 10))
+        # Default: si estamos en Pi, sugiere /dev/serial/by-id; si no, COM5.
+        default_port = self._suggest_pi_serial_port() if os.name == "posix" else "COM5"
+        self.port_var = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
+        tk.Entry(row, textvariable=self.port_var, width=18, font=("", 10)).pack(side="left", padx=(4, 10))
+
+        def set_windows_port():
+            self.port_var.set("COM5")
+
+        def set_pi_port():
+            p = self._suggest_pi_serial_port()
+            if p:
+                self.port_var.set(p)
+            else:
+                self.port_var.set("/dev/ttyUSB0")
+
+        ttk.Button(row, text="Windows", style="Handheld.TButton", command=set_windows_port).pack(side="left", padx=(0, 6))
+        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=set_pi_port).pack(side="left", padx=(0, 6))
 
         tk.Label(row, text="Baud:", font=("", 10)).pack(side="left")
         self.baud_var = tk.StringVar(value="115200")
