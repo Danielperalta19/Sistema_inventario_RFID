@@ -8,6 +8,9 @@ Flujograma (menú principal):
 
 import json
 import os
+import shutil
+import subprocess
+import threading
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
@@ -258,6 +261,51 @@ class HandheldApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    def _hid_enable_advertising_and_open(self):
+        """Activa advertising BLE (btmgmt) y abre la pantalla HID.
+
+        Se ejecuta en background para no congelar la UI.
+        Requiere sudoers NOPASSWD para el usuario (ej. `user`).
+        """
+        # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
+        self._show_frame("hid")
+
+        # Solo intentamos ejecutar btmgmt en Linux.
+        if os.name != "posix":
+            return
+
+        def worker():
+            btmgmt = shutil.which("btmgmt") or "/usr/bin/btmgmt"
+            cmd = ["sudo", "-n", btmgmt, "-i", "hci0", "advertising", "on"]
+            try:
+                p = subprocess.run(cmd, text=True, capture_output=True)
+            except Exception as e:
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Bluetooth",
+                        "No pude ejecutar btmgmt desde la app.\n\n"
+                        f"Comando: {' '.join(cmd)}\n"
+                        f"Error: {e}",
+                    ),
+                )
+                return
+
+            if p.returncode != 0:
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Bluetooth",
+                        "Falló activar advertising.\n\n"
+                        f"Comando: {' '.join(cmd)}\n"
+                        f"Exit: {p.returncode}\n\n"
+                        f"STDOUT:\n{(p.stdout or '').strip()}\n\n"
+                        f"STDERR:\n{(p.stderr or '').strip()}",
+                    ),
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _location_key(self):
         return _location_label(self.building_var.get(), self.room_var.get())
 
@@ -337,7 +385,7 @@ class HandheldApp(tk.Tk):
         big(
             self._frame_menu,
             "Modo teclado (códigos a la laptop)",
-            lambda: self._show_frame("hid"),
+            self._hid_enable_advertising_and_open,
         )
 
     def _build_connect(self):
