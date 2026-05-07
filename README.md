@@ -8,19 +8,15 @@ Este repo está hecho para correr en:
 
 ## Cómo se ejecuta
 
-### GUI (ventana)
+### GUI (handheld / Waveshare 480×320)
 
 ```bash
-python -m rfid_inventory.ui.gui.inventory_app
+python -m rfid_inventory.ui.gui.handheld_app
 ```
 
-### CLI (terminal, recomendado para Raspberry)
+### CLI (opcional)
 
-```bash
-python -m rfid_inventory.ui.cli.inventory_mode --port COM5
-python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyUSB0
-python -m rfid_inventory.ui.cli.inventory_mode --port /dev/ttyACM0 --seconds 30
-```
+Se eliminó el modo CLI para mantener el proyecto más simple.
 
 Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). El código de la librería `rfid_r200` va **incluido** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`) para que en Raspberry Pi no dependas de un wheel roto de pip/piwheels.
 
@@ -33,10 +29,12 @@ Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). El código d
   - Notifica **cada lectura** (incluye repetidos) y guarda un snapshot de EPC únicos + último RSSI.
 - `rfid_inventory/domain/compare.py`
   - Lógica pura: `compare_expected_found(expected, found)` → OK / FALTA / NUEVO.
-- `rfid_inventory/ui/gui/inventory_app.py`
-  - UI en Tkinter: lista “Vistos” (en vivo, con repetidos) + tabla de comparación al detener.
-- `rfid_inventory/ui/cli/inventory_mode.py`
-  - Misma idea que la GUI pero en terminal: imprime una línea por lectura; ENTER detiene.
+- `rfid_inventory/ui/gui/handheld_app.py`
+  - UI en Tkinter para Raspberry (480×320): flujo Start → Conectar → Menú → módulos.
+- `rfid_inventory/app/tag_writer_service.py`
+  - Lógica del módulo “Escribir etiqueta” (simulado por defecto; habilitable con hardware).
+- `rfid_inventory/ui/ui_formatters.py`
+  - Formateo de UI (mostrar “Activo” decodificando EPC12 cuando aplique).
 - `firmware/arduino_r200_emulator/r200_emulador/r200_emulador.ino`
   - Emulador mínimo del protocolo del R200: responde a `multiple poll`, `stop` e `info`.
   - Los EPC (12 bytes) se generan a partir de los códigos de **activo** del JSON de ejemplo: texto ASCII rellenado a 12 bytes con `0x00` (misma lógica que el mock numérico `7501…` pero con `FA000358` etc.). Regenerar el array incluido:
@@ -45,6 +43,15 @@ Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). El código d
   - Catálogo de prueba (JSON) para la app y la página web:
     - `ubicacionesComputacion.json`
     - `activosPiso2_Computacion.json`
+
+## Flags (cuando haya hardware real)
+
+- Para habilitar escritura real de EPC en el módulo “Escribir etiqueta”:
+
+```bash
+set RFID_WRITE_USE_HARDWARE=1
+python -m rfid_inventory.ui.gui.handheld_app
+```
 
 ## Cómo funciona (explicación para presentar)
 
