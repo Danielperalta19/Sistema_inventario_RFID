@@ -33,6 +33,10 @@ class Scanner:
     def stop(self):
         self._stop.set()
         if self._thread is not None:
+            # Si stop() se llama desde el mismo hilo del scanner (p.ej. dentro de on_tag_read),
+            # no podemos hacer join() de nosotros mismos.
+            if threading.current_thread() is self._thread:
+                return
             self._thread.join(timeout=4.0)
             self._thread = None
 

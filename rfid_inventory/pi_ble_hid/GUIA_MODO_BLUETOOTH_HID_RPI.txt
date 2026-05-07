@@ -1,0 +1,163 @@
+
+Guía (replicable): Modo Bluetooth HID (teclado) en Raspberry Pi
+Sistema: Sistema_inventario_RFID (Pi Zero 2 W / BlueZ)
+
+
+Objetivo
+
+Dejar la Raspberry Pi anunciándose por Bluetooth (BLE) como periférico HID
+(teclado), para que una laptop (Windows) se conecte y reciba “teclas” como si
+fuera un escáner/teclado.
+
+Esta guía documenta el flujo que nos funcionó con:
+- `bluetoothctl` (para power/pairable/discoverable/advertise)
+- `btmgmt` (para forzar `advertising on` en hci0)
+- `systemd` (autostart al arrancar)
+- `sudoers` (para ejecutar `btmgmt` desde la UI sin password)
+
+
+1) Prerrequisitos en la Pi
+--------------------------
+- Raspberry Pi OS con BlueZ instalado (servicio `bluetooth` activo).
+- El repo en la Pi, por ejemplo:
+  `~/Sistema_inventario_RFID`
+
+Comprobar que existen las herramientas:
+  which bluetoothctl
+  which btmgmt
+
+Reiniciar Bluetooth (recomendado antes de pruebas):
+  sudo systemctl restart bluetooth
+
+
+2) Comandos “a mano” que funcionaron (para probar rápido)
+---------------------------------------------------------
+Encender y hacer visible el adaptador:
+  sudo bluetoothctl power on
+  sudo bluetoothctl pairable on
+  sudo bluetoothctl discoverable on
+
+Forzar conectable + advertising (hci0):
+  sudo btmgmt -i hci0 connectable on
+  sudo btmgmt -i hci0 advertising on
+
+Verificar estado:
+  sudo btmgmt -i hci0 info
+
+Buscamos ver en “current settings” cosas como:
+  - discoverable
+  - connectable
+  - advertising
+
+
+3) Autostart (systemd) como lo dejamos en el proyecto
+-----------------------------------------------------
+En este repo ya existen unidades y scripts para arrancar automático:
+
+  rfid_inventory/pi_ble_hid/systemd/rfid-hid-bt-up.service
+    -> corre `rfid-hid-bt-up.sh` (bluetoothctl + refuerzo btmgmt)
+
+  rfid_inventory/pi_ble_hid/systemd/rfid-hid-gatt.service
+    -> arranca el servidor HID: `gatt_server_rfid.py`
+
+Copiar las unidades a /etc/systemd/system/ (en la Pi):
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  sudo cp systemd/rfid-hid-bt-up.service /etc/systemd/system/
+  sudo cp systemd/rfid-hid-gatt.service  /etc/systemd/system/
+  sudo cp systemd/rfid-hid-gatt.default  /etc/default/rfid-hid-gatt
+
+IMPORTANTE: rutas en los .service
+- En el repo están con `/home/user/...`
+- Si tu usuario NO es `user` (por ejemplo `pi`), edita los paths en:
+  - `/etc/systemd/system/rfid-hid-bt-up.service`
+  - `/etc/systemd/system/rfid-hid-gatt.service`
+
+Configurar variables (si usarás lector/puerto serie en el HID):
+  sudo nano /etc/default/rfid-hid-gatt
+  # Ejemplo:
+  # RFID_PORT=/dev/ttyUSB0
+  # RFID_BAUD=115200
+
+Habilitar y arrancar:
+  sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-bt-up.service
+  sudo systemctl enable rfid-hid-gatt.service
+  sudo systemctl start rfid-hid-bt-up.service
+  sudo systemctl start rfid-hid-gatt.service
+
+Ver logs:
+  sudo systemctl status rfid-hid-gatt.service
+  journalctl -u rfid-hid-gatt.service -f
+  journalctl -t rfid-hid-bt-up -b
+
+Notas técnicas importantes (aprendidas en pruebas):
+- `btmgmt -i hci0 advertising on` a veces se bloqueaba; por eso se ejecuta con
+  `timeout 120` en `rfid-hid-bt-up.sh` y se loguea su salida.
+- El script usa primero `bluetoothctl` para dejar el adaptador visible y luego
+  refuerza con `btmgmt` para que Windows “vea” consistentemente el dispositivo.
+
+Opcional (cuando tras el boot NO queda advertising):
+- Existe una segunda unidad para re-disparar el script después del GATT:
+  `systemd/rfid-hid-bt-up-post.service`
+  (copiar/enable/start igual que las otras)
+
+
+4) Emparejar desde Windows (flujo que funcionó mejor)
+-----------------------------------------------------
+En Windows, muchas veces el emparejamiento/conexión funcionó mejor con:
+- App “Bluetooth LE Explorer” (Microsoft Store)
+
+Flujo:
+- En la Pi, asegúrate de estar discoverable + advertising (pasos 2 o 3).
+- En Windows, abre Bluetooth LE Explorer, localiza el dispositivo y pulsa Pair.
+- Si la Pi pide confirmación/código, necesitas verla (monitor o VNC/AnyDesk/etc)
+  para aceptar.
+
+Prueba final:
+- Abrir Bloc de notas y verificar que “llegan teclas” cuando el HID envía input.
+
+
+5) Botón en la app (Tkinter) para activar advertising sin password
+------------------------------------------------------------------
+La app (`rfid_inventory/ui/gui/handheld_app.py`) ejecuta este comando en Linux:
+  sudo -n btmgmt -i hci0 advertising on
+
+Para que NO pida contraseña, agregamos un sudoers específico (NO general):
+
+1) En la Pi, abrir sudoers con visudo:
+  sudo visudo -f /etc/sudoers.d/rfid-btmgmt
+
+2) Agregar (ajusta el usuario si no es `user`):
+  user ALL=(root) NOPASSWD: /usr/bin/btmgmt -i hci0 advertising on
+
+3) Guardar. Probar en terminal (debe regresar exit 0 sin pedir password):
+  sudo -n /usr/bin/btmgmt -i hci0 advertising on
+
+Verificar:
+  sudo /usr/bin/btmgmt -i hci0 info
+
+
+6) Checklist de solución de problemas (rápida)
+----------------------------------------------
+- Servicio bluetooth:
+  sudo systemctl status bluetooth
+
+- Ver “advertising/discoverable”:
+  sudo btmgmt -i hci0 info
+
+- Ver logs del autostart:
+  journalctl -t rfid-hid-bt-up -b
+  journalctl -u rfid-hid-gatt.service -e --no-pager
+
+- Si el GATT no registra / se queda colgado:
+  sudo pkill -f gatt_server_rfid.py
+  sudo systemctl restart rfid-hid-gatt.service
+
+- Si el `btmgmt` “se tarda”:
+  (es esperado en algunas ocasiones; por eso está con timeout en el script)
+
+
+================================================================================
+Fin de guía
+================================================================================
+

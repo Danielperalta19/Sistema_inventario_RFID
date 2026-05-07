@@ -1,12 +1,3 @@
-"""Inventario RFID para pantalla pequeña (Waveshare típica 480×320, p. ej. con Raspberry Pi Zero 2 W).
-
-Flujograma (menú principal):
-  - Inventario por ubicación: conexión lector → ubicación → escaneo → resultado (y detalle).
-  - Rastrear activo / Escribir tag: pendientes de lógica (solo UI placeholder).
-  - Modo teclado BT: pistola como lector de códigos hacia la laptop (sin flujo RFID en esta UI).
-"""
-
-import json
 import os
 import shutil
 import subprocess
@@ -14,161 +5,21 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+import json
+import datetime
+import random
 
 from rfid_inventory.app import Scanner
+from rfid_inventory.app.inventory_presenter import build_result_rows
 from rfid_inventory.app.inventory_service import InventoryService
+from rfid_inventory.app.proximity_tracker import ProximityTracker
+from rfid_inventory.app.tag_writer_service import TagWriterService
+from rfid_inventory.app.tracking_service import TrackingService
+from rfid_inventory.catalog.catalog_loader import default_catalog_paths, flatten_locations, load_locations_nested_from_json
+from rfid_inventory.catalog.epc12_codec import asset_code_to_epc12_hex
+from rfid_inventory.catalog.epc12_codec import epc12_hex_to_asset_code
 from rfid_inventory.drivers import R200Driver
-
-
-def _asset_code_to_epc12_hex(code: str) -> str:
-    """Misma codificación que el emulador: ASCII (máx 12) + 0x00 hasta 12 bytes, y luego hex."""
-    s = (code or "").strip()
-    b = s.encode("ascii", errors="ignore")[:12]
-    b = b.ljust(12, b"\x00")
-    return b.hex()
-
-
-def _parse_nombre_ubicacion(nombre: str) -> tuple[str, str]:
-    """Extrae edificio y 'sala' desde el string del catálogo (formato 'Unidad: ... - Edificio: X - ...')."""
-    if not nombre:
-        return ("(Sin edificio)", "(Sin sala)")
-    parts = [p.strip() for p in str(nombre).split(" - ") if p.strip()]
-    fields = {}
-    for p in parts:
-        if ":" in p:
-            k, v = p.split(":", 1)
-            fields[k.strip().lower()] = v.strip()
-    edificio = fields.get("edificio") or "(Sin edificio)"
-    piso = fields.get("piso")
-    cubo = fields.get("cubo")
-    subcubo = fields.get("subcubo")
-    area = fields.get("area")
-    sala_bits = []
-    if piso:
-        sala_bits.append(f"Piso {piso}")
-    if cubo:
-        sala_bits.append(f"Cubo {cubo}")
-    if subcubo:
-        sala_bits.append(f"SubCubo {subcubo}")
-    if area:
-        sala_bits.append(area)
-    sala = " · ".join(sala_bits) if sala_bits else str(nombre)
-    return (edificio, sala)
-
-
-def _read_json_first(paths: list[str]):
-    """Lee el primer JSON existente y válido de una lista de rutas."""
-    for p in paths:
-        if not p or not os.path.isfile(p):
-            continue
-        try:
-            return json.loads(open(p, "r", encoding="utf-8").read())
-        except Exception:
-            continue
-    return None
-
-
-def _sala_from_ubic_row(u: dict) -> str:
-    piso = u.get("piso")
-    cubo = u.get("cubo")
-    subcubo = u.get("subcubo")
-    area = u.get("area")
-    sala_bits = []
-    if piso:
-        sala_bits.append(f"Piso {piso}")
-    if cubo:
-        sala_bits.append(f"Cubo {cubo}")
-    if subcubo:
-        sala_bits.append(f"SubCubo {subcubo}")
-    if area:
-        sala_bits.append(str(area))
-    nombre_u = u.get("nombreUbicacion")
-    return " · ".join(sala_bits) if sala_bits else (str(nombre_u) if nombre_u else "(Sin sala)")
-
-
-def _load_locations_nested_from_json() -> dict:
-    """edificio -> sala -> lista de EPC esperados (hex).
-
-    Fuente de datos:
-    - Ubicaciones: `ubicacionesComputacion.json`
-    - Activos por ubicación: `activosPiso2_Computacion.json`
-
-    Relación:
-    - Preferentemente por `idUbicacion` (en activos) contra `idUbicacion` (en ubicaciones).
-    - Si no existe match, cae a parsear `nombreUbicacion` desde el JSON de activos.
-    """
-    here = os.path.dirname(os.path.abspath(__file__))
-    # rfid_inventory/ui/gui -> rfid_inventory -> pi_ble_hid/web
-    web_dir = os.path.abspath(os.path.join(here, "..", "..", "pi_ble_hid", "web"))
-    data_dir = os.path.abspath(os.path.join(here, "..", "..", "data", "catalog_ejemplo"))
-
-    ubic_paths = [
-        os.path.join(web_dir, "ubicacionesComputacion.json"),
-        os.path.join(data_dir, "ubicacionesComputacion.json"),
-    ]
-    activos_paths = [
-        os.path.join(web_dir, "activosPiso2_Computacion.json"),
-        os.path.join(data_dir, "activosPiso2_Computacion.json"),
-    ]
-
-    ubic_rows = _read_json_first(ubic_paths) or []
-    activo_rows = _read_json_first(activos_paths) or []
-    if not isinstance(ubic_rows, list):
-        ubic_rows = []
-    if not isinstance(activo_rows, list):
-        activo_rows = []
-
-    ubic_by_id: dict[int, dict] = {}
-    for u in ubic_rows:
-        if not isinstance(u, dict):
-            continue
-        uid = u.get("idUbicacion")
-        if isinstance(uid, int):
-            ubic_by_id[uid] = u
-
-    out: dict[str, dict[str, list[str]]] = {}
-    seen_per_room: dict[tuple[str, str], set[str]] = {}
-
-    # 1) Primero: publica TODAS las ubicaciones del JSON, aunque no tengan activos.
-    for uid, u in ubic_by_id.items():
-        edif = u.get("edificio") or "(Sin edificio)"
-        sala = _sala_from_ubic_row(u)
-        if edif not in out:
-            out[edif] = {}
-        out[edif].setdefault(sala, [])
-        seen_per_room.setdefault((edif, sala), set())
-
-    # 2) Luego: agrega activos que hagan match por idUbicacion.
-    for r in activo_rows:
-        a = (r or {}).get("activo") or {}
-        code = a.get("activo")
-        if not code:
-            continue
-
-        uid = a.get("idUbicacion")
-        if not (isinstance(uid, int) and uid in ubic_by_id):
-            # Mantener "solo ubicaciones del JSON": si no hay match, no inventamos ubicación.
-            continue
-        u = ubic_by_id[uid]
-        edif = u.get("edificio") or "(Sin edificio)"
-        sala = _sala_from_ubic_row(u)
-
-        key = (edif, sala)
-        if key not in seen_per_room:
-            seen_per_room[key] = set()
-        epc_hex = _asset_code_to_epc12_hex(str(code))
-        if epc_hex in seen_per_room[key]:
-            continue
-        seen_per_room[key].add(epc_hex)
-        if edif not in out:
-            out[edif] = {}
-        out[edif].setdefault(sala, []).append(epc_hex)
-
-    # orden estable
-    for edif in out:
-        for sala in out[edif]:
-            out[edif][sala].sort()
-    return out
+from rfid_inventory.ui.ui_formatters import asset_code_or_dash, asset_display_from_epc, write_status_programmed
 
 
 def _mock_locations_nested():
@@ -190,14 +41,6 @@ def _mock_locations_nested():
             epcs.append(digits.encode("ascii").hex())
         out[edif][sala] = epcs
     return out
-
-
-def _flatten_locations(nested):
-    flat = {}
-    for edif, rooms in nested.items():
-        for sala, epcs in rooms.items():
-            flat[_location_label(edif, sala)] = epcs
-    return flat
 
 
 def _location_label(edificio, sala):
@@ -223,14 +66,26 @@ class HandheldApp(tk.Tk):
 
         self._result_location = ""
         self._result_rows = []
+        self._result_iid_to_epc = {}
         self._last_snap = None
         self._filter_mode = tk.StringVar(value="todos")
 
         self._driver = R200Driver()
         self._scanner = Scanner(self._driver)
-        self._nested_locations = _load_locations_nested_from_json() or _mock_locations_nested()
-        self._locations = _flatten_locations(self._nested_locations)
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        cat_paths = default_catalog_paths(repo_root)
+        self._nested_locations = load_locations_nested_from_json(cat_paths) or _mock_locations_nested()
+        self._locations = flatten_locations(self._nested_locations)
         self._inventory = InventoryService(self._locations, self._scanner)
+
+        self._tracking = TrackingService(self._nested_locations)
+        self._prox = ProximityTracker(alpha=0.25)
+        self._tag_writer = TagWriterService()
+        self._prox_running = False
+        self._prox_ui_job = None
+        # Modo demostrativo: forzar simulación aunque haya lector conectado.
+        # Cuando tengas el lector real, cambia a False para usar RSSI real del tag objetivo.
+        self._prox_force_sim = True
 
         self._init_style()
 
@@ -238,6 +93,7 @@ class HandheldApp(tk.Tk):
         self.container.pack(fill="both", expand=True)
 
         self._frame_menu = None
+        self._frame_start = None
         self._frame_connect = None
         self._frame_setup = None
         self._frame_scan = None
@@ -247,6 +103,10 @@ class HandheldApp(tk.Tk):
         self._frame_escritura = None
         self._frame_hid = None
 
+        # A dónde avanzar después de conectar (menu o setup)
+        self._connect_next = "menu"
+
+        self._build_start()
         self._build_menu()
         self._build_connect()
         self._build_setup()
@@ -257,7 +117,7 @@ class HandheldApp(tk.Tk):
         self._build_escritura()
         self._build_hid()
 
-        self._show_frame("menu")
+        self._show_frame("start")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -352,7 +212,9 @@ class HandheldApp(tk.Tk):
     def _show_frame(self, name):
         for w in self.container.winfo_children():
             w.pack_forget()
-        if name == "menu":
+        if name == "start":
+            self._frame_start.pack(fill="both", expand=True)
+        elif name == "menu":
             self._frame_menu.pack(fill="both", expand=True)
         elif name == "connect":
             self._frame_connect.pack(fill="both", expand=True)
@@ -371,6 +233,29 @@ class HandheldApp(tk.Tk):
         elif name == "hid":
             self._frame_hid.pack(fill="both", expand=True)
 
+    def _build_start(self):
+        self._frame_start = tk.Frame(self.container)
+
+        tk.Label(
+            self._frame_start,
+            text="Sistema de Inventario RFID",
+            font=("", 15, "bold"),
+        ).pack(pady=(28, 6))
+
+        tk.Label(
+            self._frame_start,
+            text="Pantalla 480×320 · Raspberry Pi",
+            font=("", 8),
+            fg="#555",
+        ).pack(pady=(0, 14))
+
+        ttk.Button(
+            self._frame_start,
+            text="Iniciar",
+            style="HandheldBig.TButton",
+            command=lambda: self._enter_connect(next_frame="menu"),
+        ).pack(fill="x", padx=28, ipady=6)
+
     def _build_menu(self):
         self._frame_menu = tk.Frame(self.container)
 
@@ -381,7 +266,7 @@ class HandheldApp(tk.Tk):
         ).pack(pady=(6, 2))
         tk.Label(
             self._frame_menu,
-            text="Pantalla 480×320 · elige una opción",
+            text="Elige una opción",
             font=("", 8),
             fg="#555",
         ).pack(pady=(0, 6))
@@ -399,21 +284,21 @@ class HandheldApp(tk.Tk):
         big(
             self._frame_menu,
             "Inventario en ubicación",
-            lambda: self._show_frame("connect"),
+            self._enter_inventory,
         )
         big(
             self._frame_menu,
-            "Rastrear activo (próximamente)",
-            lambda: self._show_frame("rastreo"),
+            "Rastrear activo",
+            self._enter_rastreo,
         )
         big(
             self._frame_menu,
-            "Escribir tag (próximamente)",
+            "Escribir etiqueta",
             lambda: self._show_frame("escritura"),
         )
         big(
             self._frame_menu,
-            "Modo teclado (códigos a la laptop)",
+            "Modo Lector Bluetooth",
             self._hid_enable_advertising_and_open,
         )
 
@@ -423,9 +308,9 @@ class HandheldApp(tk.Tk):
 
         ttk.Button(
             self._frame_connect,
-            text="← Menú",
+            text="Inicio",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("menu"),
+            command=lambda: self._show_frame("start"),
         ).pack(anchor="w", padx=8, pady=(4, 0))
 
         tk.Label(
@@ -482,12 +367,46 @@ class HandheldApp(tk.Tk):
 
         self.btn_continue = ttk.Button(
             self._frame_connect,
-            text="Continuar (ubicación)",
+            text="Continuar",
             style="HandheldBig.TButton",
-            command=lambda: self._show_frame("setup"),
+            command=self._after_connect_continue,
             state="disabled",
         )
         self.btn_continue.pack(pady=4, ipadx=16, ipady=6)
+
+    def _enter_connect(self, next_frame: str):
+        """Pantalla de conexión reutilizable: al conectar, avanza a next_frame."""
+        self._connect_next = next_frame or "menu"
+        # Texto del botón de continuar según el flujo
+        if self._connect_next == "setup":
+            self.btn_continue.config(text="Continuar (ubicación)")
+        else:
+            self.btn_continue.config(text="Ir al menú")
+
+        # Si ya está conectado, habilita continuar sin reconectar
+        if self._driver.connected:
+            self.home_status_var.set("Lector: conectado")
+            self.btn_connect.config(state="disabled")
+            self.btn_continue.config(state="normal")
+        else:
+            self.home_status_var.set("Lector: desconectado")
+            self.btn_connect.config(state="normal")
+            self.btn_continue.config(state="disabled")
+
+        self._show_frame("connect")
+
+    def _after_connect_continue(self):
+        if self._connect_next == "setup":
+            self._show_frame("setup")
+        else:
+            self._show_frame("menu")
+
+    def _enter_inventory(self):
+        """Entrar al módulo de inventario por ubicación."""
+        if self._driver.connected:
+            self._show_frame("setup")
+        else:
+            self._enter_connect(next_frame="setup")
 
     def _build_setup(self):
         self._frame_setup = tk.Frame(self.container)
@@ -543,7 +462,7 @@ class HandheldApp(tk.Tk):
             row_btns,
             text="Atrás",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("connect"),
+            command=lambda: self._show_frame("menu"),
         ).pack(side="left", padx=8)
 
         self.btn_to_scan = ttk.Button(
@@ -601,7 +520,7 @@ class HandheldApp(tk.Tk):
             height=4,
         )
         self.scan_tree.heading("status", text="Estado")
-        self.scan_tree.heading("epc", text="EPC")
+        self.scan_tree.heading("epc", text="Activo")
         self.scan_tree.heading("rssi", text="RSSI")
         self.scan_tree.column("status", width=88, anchor="center")
         self.scan_tree.column("epc", width=250, anchor="w")
@@ -702,7 +621,7 @@ class HandheldApp(tk.Tk):
 
         tree_frame = tk.Frame(self._frame_result)
         tree_frame.pack(fill="both", expand=True, padx=8, pady=4)
-
+            
         self.tree = ttk.Treeview(
             tree_frame,
             columns=("status", "epc", "rssi"),
@@ -710,7 +629,7 @@ class HandheldApp(tk.Tk):
             height=7,
         )
         self.tree.heading("status", text="Estado")
-        self.tree.heading("epc", text="EPC")
+        self.tree.heading("epc", text="Activo")
         self.tree.heading("rssi", text="RSSI")
         self.tree.column("status", width=96, anchor="center")
         self.tree.column("epc", width=270, anchor="w")
@@ -747,6 +666,13 @@ class HandheldApp(tk.Tk):
 
         ttk.Button(
             btns,
+            text="Actualizar tipoUbicacion",
+            style="HandheldBig.TButton",
+            command=self._export_tipo_ubicacion_updated,
+        ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
+
+        ttk.Button(
+            btns,
             text="Menú",
             style="HandheldBig.TButton",
             command=self._go_menu_from_result,
@@ -771,6 +697,8 @@ class HandheldApp(tk.Tk):
             tk.Label(r, text=lbl, font=("", 9), width=18, anchor="w").pack(side="left")
             tk.Label(r, textvariable=var, font=("", 9), wraplength=320, justify="left", anchor="w").pack(side="left")
 
+        self.detail_code_var = tk.StringVar(value="")
+        line("Activo:", self.detail_code_var)
         line("EPC:", self.detail_epc_var)
         line("Estado:", self.detail_status_var)
         line("Ubicación esperada:", self.detail_loc_var)
@@ -803,7 +731,7 @@ class HandheldApp(tk.Tk):
         self._frame_rastreo = tk.Frame(self.container)
         ttk.Button(
             self._frame_rastreo,
-            text="← Menú",
+            text="Menú",
             style="Handheld.TButton",
             command=lambda: self._show_frame("menu"),
         ).pack(anchor="w", padx=8, pady=6)
@@ -812,20 +740,203 @@ class HandheldApp(tk.Tk):
             text="Rastrear activo",
             font=("", 14, "bold"),
         ).pack(anchor="w", padx=12, pady=(0, 8))
+
         tk.Label(
             self._frame_rastreo,
-            text="Pendiente: buscar un EPC y mostrar su ubicación o historial. La lógica se conectará al catálogo o al lector según diseño.",
-            font=("", 9),
+            text="Busca por código de activo.",
+            font=("", 8),
             wraplength=440,
             justify="left",
             fg="#444",
-        ).pack(anchor="w", padx=12, pady=4)
+        ).pack(anchor="w", padx=12, pady=(0, 6))
+
+        row = tk.Frame(self._frame_rastreo)
+        row.pack(fill="x", padx=12, pady=4)
+
+        self.rastreo_in_var = tk.StringVar(value="")
+        tk.Entry(row, textvariable=self.rastreo_in_var, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(row, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).pack(side="left")
+
+        row2 = tk.Frame(self._frame_rastreo)
+        row2.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Button(row2, text="Limpiar", style="Handheld.TButton", command=lambda: self.rastreo_in_var.set("")).pack(
+            side="right"
+        )
+
+        box = tk.Frame(self._frame_rastreo)
+        box.pack(fill="both", expand=True, padx=12, pady=(6, 6))
+
+        self.rastreo_code_var = tk.StringVar(value="Activo: —")
+        self.rastreo_epc_var = tk.StringVar(value="EPC: —")
+        self.rastreo_loc_var = tk.StringVar(value="Ubicación esperada: —")
+
+        tk.Label(box, textvariable=self.rastreo_code_var, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(box, textvariable=self.rastreo_epc_var, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(2, 6))
+        tk.Label(box, textvariable=self.rastreo_loc_var, font=("", 9), wraplength=440, justify="left", anchor="w").pack(
+            fill="x"
+        )
+
+        # Proximidad (frío/caliente)
+        prox = tk.Frame(self._frame_rastreo)
+        prox.pack(fill="x", padx=12, pady=(0, 8))
+
+        self.prox_state_var = tk.StringVar(value="Proximidad: —")
+        self.prox_rssi_var = tk.StringVar(value="RSSI: —")
+        tk.Label(prox, textvariable=self.prox_state_var, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(prox, textvariable=self.prox_rssi_var, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(1, 4))
+
+        self.prox_bar = ttk.Progressbar(prox, orient="horizontal", mode="determinate", maximum=100)
+        self.prox_bar.pack(fill="x")
+
+        row3 = tk.Frame(self._frame_rastreo)
+        row3.pack(fill="x", padx=12, pady=(4, 10))
+        self.btn_prox_start = ttk.Button(row3, text="Iniciar rastreo", style="HandheldBig.TButton", command=self._prox_start)
+        self.btn_prox_start.pack(side="left", fill="x", expand=True, padx=(0, 6), ipady=2)
+        self.btn_prox_stop = ttk.Button(row3, text="Detener", style="HandheldBig.TButton", command=self._prox_stop, state="disabled")
+        self.btn_prox_stop.pack(side="right", fill="x", expand=True, padx=(6, 0), ipady=2)
+
+    def _enter_rastreo(self):
+        # Evita que el scanner quede leyendo en background.
+        self._cancel_pending_pistol_start()
+        self._scanner.resume()
+        self._scanner.stop()
+        self._stop_scan_timer()
+        self._set_scan_controls_reading(False)
+        self._show_frame("rastreo")
+        self._prox_stop()
+
+    def _rastreo_normalize_input(self, s: str) -> tuple[str, str]:
+        return self._tracking.normalize_input(s)
+
+    def _rastreo_buscar(self):
+        res = self._tracking.track(self.rastreo_in_var.get())
+        if not res:
+            messagebox.showinfo("Rastreo", "Escribe un EPC (hex) o un código de activo.")
+            return
+        self.rastreo_code_var.set("Activo: {0}".format(res.asset_code or "(desconocido)"))
+        self.rastreo_epc_var.set("EPC: {0}".format(res.epc_hex))
+        if not res.locations:
+            self.rastreo_loc_var.set("Ubicación esperada: (no encontrado en catálogo)")
+        elif len(res.locations) == 1:
+            self.rastreo_loc_var.set("Ubicación esperada: {0}".format(res.locations[0]))
+        else:
+            locs = res.locations
+            self.rastreo_loc_var.set("Ubicación esperada: " + " | ".join(locs[:4]) + (" ..." if len(locs) > 4 else ""))
+        # Reset de proximidad con el EPC objetivo
+        self._prox.reset(res.epc_hex)
+        self.prox_bar["value"] = 0
+        self.prox_state_var.set("Proximidad: listo")
+        self.prox_rssi_var.set("RSSI: —")
+
+    def _prox_set_controls(self, running: bool):
+        self._prox_running = bool(running)
+        self.btn_prox_start.config(state=("disabled" if running else "normal"))
+        self.btn_prox_stop.config(state=("normal" if running else "disabled"))
+
+    def _prox_start(self):
+        # Debe haber EPC objetivo
+        st = self._prox.state
+        if st is None or not st.target_epc:
+            # intenta buscar con lo que haya en input
+            self._rastreo_buscar()
+            st = self._prox.state
+            if st is None or not st.target_epc:
+                return
+
+        self._prox_stop()
+        self._prox_set_controls(True)
+
+        target = st.target_epc
+        seen = {"any": False}
+
+        # Modo simulación (demostrativo): RSSI inventado que varía.
+        if self._prox_force_sim or (not self._driver.connected):
+            self.prox_state_var.set("Proximidad: simulación (demo)")
+            self._prox_sim_start()
+            self._prox_ui_start()
+            return
+
+        def on_tag(tag, _idx):
+            epc = (tag.epc_hex or "").lower()
+            if epc != target:
+                return
+            seen["any"] = True
+            now_ms = int(self.tk.call("clock", "milliseconds"))
+            self._prox.update(tag.rssi, now_ms)
+
+        def on_err(e):
+            self._on_scan_error(e)
+            self._prox_stop()
+
+        self._scanner.reset()
+        self._scanner.start(on_tag_read=on_tag, on_error=on_err)
+        self._prox_ui_start()
+
+    def _prox_stop(self):
+        self._prox_set_controls(False)
+        # Detiene loop UI
+        if self._prox_ui_job is not None:
+            try:
+                self.after_cancel(self._prox_ui_job)
+            except Exception:
+                pass
+        self._prox_ui_job = None
+        if getattr(self, "_prox_sim_job", None) is not None:
+            try:
+                self.after_cancel(self._prox_sim_job)
+            except Exception:
+                pass
+        self._prox_sim_job = None
+        # No detener el scanner global si estamos en otra pantalla, pero aquí sí:
+        try:
+            self._scanner.stop()
+        except Exception:
+            pass
+
+    def _prox_ui_start(self):
+        # Actualiza barra/labels cada 200ms y marca "sin señal" si no se ve recientemente
+        def tick():
+            if not self._prox_running:
+                return
+            st = self._prox.state
+            now_ms = int(self.tk.call("clock", "milliseconds"))
+            lvl = self._prox.level_0_100()
+            self.prox_bar["value"] = lvl
+            if st and st.ema_rssi is not None:
+                self.prox_state_var.set(f"Proximidad: {self._prox.label()}  ({lvl}%)")
+                self.prox_rssi_var.set(f"RSSI: {st.ema_rssi:.1f} dBm (último {st.last_rssi} dBm)")
+                if st.last_seen_ms is not None and now_ms - st.last_seen_ms > 1200:
+                    self.prox_state_var.set("Proximidad: Sin señal (no se ve el tag)")
+            else:
+                self.prox_state_var.set("Proximidad: Sin señal")
+                self.prox_rssi_var.set("RSSI: —")
+            self._prox_ui_job = self.after(200, tick)
+
+        self._prox_ui_job = self.after(100, tick)
+
+    def _prox_sim_start(self):
+        # Simulación simple: random walk entre -90 y -35 dBm
+        cur = {"r": -75}
+
+        def step():
+            if not self._prox_running:
+                return
+            cur["r"] += random.randint(-3, 3)
+            if cur["r"] < -90:
+                cur["r"] = -90
+            if cur["r"] > -35:
+                cur["r"] = -35
+            now_ms = int(self.tk.call("clock", "milliseconds"))
+            self._prox.update(cur["r"], now_ms)
+            self._prox_sim_job = self.after(250, step)
+
+        self._prox_sim_job = self.after(250, step)
 
     def _build_escritura(self):
         self._frame_escritura = tk.Frame(self.container)
         ttk.Button(
             self._frame_escritura,
-            text="← Menú",
+            text="Menú",
             style="Handheld.TButton",
             command=lambda: self._show_frame("menu"),
         ).pack(anchor="w", padx=8, pady=6)
@@ -834,21 +945,112 @@ class HandheldApp(tk.Tk):
             text="Escribir tag",
             font=("", 14, "bold"),
         ).pack(anchor="w", padx=12, pady=(0, 8))
+
         tk.Label(
             self._frame_escritura,
-            text="Pendiente: programación de EPC en etiquetas (R200 u otro comando). Aquí irá la secuencia de escritura.",
-            font=("", 9),
+            text="Flujo: escanea 1 etiqueta → escribe el código del activo → (futuro) programar EPC.",
+            font=("", 8),
             wraplength=440,
             justify="left",
             fg="#444",
-        ).pack(anchor="w", padx=12, pady=4)
+        ).pack(anchor="w", padx=12, pady=(0, 6))
+
+        box = tk.Frame(self._frame_escritura)
+        box.pack(fill="both", expand=True, padx=12, pady=(4, 6))
+
+        self.write_current_epc_var = tk.StringVar(value="EPC actual: —")
+        self.write_current_code_var = tk.StringVar(value="Código actual (si aplica): —")
+        self.write_new_epc_var = tk.StringVar(value="EPC nuevo: —")
+        self.write_status_var = tk.StringVar(value="")
+
+        tk.Label(box, textvariable=self.write_current_epc_var, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(box, textvariable=self.write_current_code_var, font=("", 8), fg="#444", anchor="w").pack(
+            fill="x", pady=(1, 8)
+        )
+
+        row = tk.Frame(box)
+        row.pack(fill="x", pady=2)
+        tk.Label(row, text="Código activo:", font=("", 10)).pack(side="left")
+        self.write_code_in_var = tk.StringVar(value="")
+        tk.Entry(row, textvariable=self.write_code_in_var, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self.write_code_in_var.trace_add("write", lambda *_: self._write_calc_new_epc(silent=True))
+
+        tk.Label(box, textvariable=self.write_new_epc_var, font=("", 9), anchor="w").pack(fill="x", pady=(8, 2))
+        tk.Label(box, textvariable=self.write_status_var, font=("", 8), fg="#444", wraplength=440, justify="left").pack(
+            fill="x", pady=(2, 0)
+        )
+
+        row2 = tk.Frame(self._frame_escritura)
+        row2.pack(fill="x", padx=12, pady=(0, 10))
+        ttk.Button(row2, text="Escanear etiqueta", style="HandheldBig.TButton", command=self._write_scan_once).pack(
+            side="left", fill="x", expand=True, ipady=2
+        )
+
+        row3 = tk.Frame(self._frame_escritura)
+        row3.pack(fill="x", padx=12, pady=(0, 10))
+        ttk.Button(row3, text="Escribir (simulado)", style="HandheldBig.TButton", command=self._write_execute).pack(
+            side="left", fill="x", expand=True, ipady=2
+        )
+
+        # Estado interno
+        self._write_current_epc = ""
+        self._write_new_epc = ""
+        # (la simulación/hardware la gestiona TagWriterService)
+
+    def _write_scan_once(self):
+        try:
+            r = self._tag_writer.scan_one_tag(self._driver)
+        except Exception as e:
+            messagebox.showerror("Escritura", str(e))
+            return
+
+        self._write_current_epc = r.epc_hex
+        suf = " (simulado)" if r.simulated else ""
+        self.write_current_epc_var.set(f"EPC actual: {r.epc_hex}{suf}")
+        self.write_current_code_var.set(f"Código actual (si aplica): {r.decoded_code or '—'}")
+        self.write_status_var.set("Etiqueta leída. Escribe el código del activo para generar el EPC nuevo.")
+        self._write_calc_new_epc(silent=True)
+
+    def _write_calc_new_epc(self, silent: bool = False):
+        code = (self.write_code_in_var.get() or "").strip()
+        if not code:
+            self._write_new_epc = ""
+            self.write_new_epc_var.set("EPC nuevo: —")
+            return
+        epc = self._tag_writer.compute_new_epc(code)
+        if not epc:
+            self._write_new_epc = ""
+            self.write_new_epc_var.set("EPC nuevo: —")
+            return
+        self._write_new_epc = epc
+        self.write_new_epc_var.set(f"EPC nuevo: {epc}  (desde {code})")
+        if not silent:
+            self.write_status_var.set("Listo para escribir (simulado).")
+
+    def _write_execute(self):
+        if not self._write_new_epc:
+            self._write_calc_new_epc(silent=True)
+        try:
+            wr = self._tag_writer.write_epc(self._driver, self._write_current_epc, self._write_new_epc)
+        except Exception as e:
+            messagebox.showerror("Escritura", str(e))
+            return
+
+        old = self._write_current_epc
+        self._write_current_epc = wr.new_epc_hex
+        code = (self.write_code_in_var.get() or "").strip()
+        suf = " (simulado)" if wr.simulated else ""
+        self.write_current_epc_var.set(f"EPC actual: {self._write_current_epc}{suf}")
+        self.write_current_code_var.set(f"Código actual (si aplica): {code or '—'}")
+        self.write_status_var.set(write_status_programmed(old, self._write_current_epc))
+        messagebox.showinfo("Escritura", "Etiqueta programada." if not wr.simulated else "Simulación: etiqueta programada.")
 
     def _build_hid(self):
         """Modo pistola como teclado Bluetooth: sin inventario en esta pantalla (flujograma: uso con laptop + web)."""
         self._frame_hid = tk.Frame(self.container)
         ttk.Button(
             self._frame_hid,
-            text="← Menú",
+            text="Menú",
             style="Handheld.TButton",
             command=lambda: self._show_frame("menu"),
         ).pack(anchor="w", padx=8, pady=6)
@@ -859,19 +1061,12 @@ class HandheldApp(tk.Tk):
         ).pack(anchor="w", padx=12, pady=(0, 6))
         tk.Label(
             self._frame_hid,
-            text="La pistola envía códigos a la laptop como lector de barras. Empareja Windows con la Pi y abre el módulo web en el navegador en la laptop.",
+            text="Empareja la pistola con la laptop. Si ya se ha hecho antes, primero olvida el dispositivo en la laptop. Después, empareja de nuevo.",
             font=("", 9),
             wraplength=440,
             justify="left",
         ).pack(anchor="w", padx=12, pady=2)
-        tk.Label(
-            self._frame_hid,
-            text="En la Pi: servicio BLE (p. ej. gatt_server_rfid en pi_ble_hid). Esta pantalla no inicia el Bluetooth: solo indica el modo operativo.",
-            font=("", 8),
-            wraplength=440,
-            justify="left",
-            fg="#666",
-        ).pack(anchor="w", padx=12, pady=(6, 4))
+       
 
     def _legend_chip(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
@@ -915,7 +1110,8 @@ class HandheldApp(tk.Tk):
         for item in self.scan_tree.get_children():
             self.scan_tree.delete(item)
         for epc in sorted(list(self._expected_set)):
-            iid = self.scan_tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""), tags=("missing",))
+            disp = asset_display_from_epc(epc)
+            iid = self.scan_tree.insert("", tk.END, values=("NO ESCANEADO", disp, ""), tags=("missing",))
             self._tree_expected_items[epc] = iid
         self.scan_line_location.set("Ubicación: {0}".format(loc))
         self.scan_line_time.set("Tiempo: 0.0 s")
@@ -1029,6 +1225,93 @@ class HandheldApp(tk.Tk):
         self._compare_and_show()
         self._show_frame("result")
 
+    def _export_tipo_ubicacion_updated(self):
+        """Genera un reporte de sesión con el MISMO formato que el catálogo de activos.
+
+        - Salida: lista JSON con objetos `{idDetalle, tipoUbicacion, activo:{...}}`
+        - Solo incluye los activos escaneados en esta sesión (found)
+        - tipoUbicacion:
+          - C si el EPC era esperado en la ubicación actual
+          - U si el EPC fue escaneado pero no era esperado en la ubicación actual
+        """
+        try:
+            loc = self._location_key()
+            snap = self._last_snap or {"seen_epcs": set()}
+            found = set(snap.get("seen_epcs") or set())
+            expected = set(self._expected_set or set())
+
+            here = os.path.dirname(os.path.abspath(__file__))
+            web_dir = os.path.abspath(os.path.join(here, "..", "..", "pi_ble_hid", "web"))
+            activos_path = os.path.join(web_dir, "activosPiso2_Computacion.json")
+            if not os.path.isfile(activos_path):
+                messagebox.showerror("Actualización", f"No existe:\n{activos_path}")
+                return
+            rows = json.loads(open(activos_path, "r", encoding="utf-8").read())
+            if not isinstance(rows, list):
+                messagebox.showerror("Actualización", "El JSON de activos no tiene formato de lista.")
+                return
+
+            # Index por código de activo para recuperar el row original sin modificar su estructura.
+            by_code = {}
+            for r in rows:
+                a = (r or {}).get("activo") or {}
+                code = a.get("activo")
+                if code:
+                    by_code[str(code).strip()] = r
+
+            expected_l = {str(x).lower() for x in expected}
+            out_rows = []
+            found_l = {str(x).lower() for x in found}
+
+            # 1) Escaneados: C/U (o ACTIVO NUEVO si no existe en catálogo base)
+            for epc in sorted(found_l):
+                code = epc12_hex_to_asset_code(epc)
+                src = by_code.get(code) if code else None
+                if src:
+                    rr = json.loads(json.dumps(src, ensure_ascii=False))  # deep copy sin cambiar formato
+                    rr["tipoUbicacion"] = "C" if epc in expected_l else "U"
+                    out_rows.append(rr)
+                    continue
+
+                # Activo NUEVO (no existe en el catálogo base): conservar formato "tipo webservice"
+                out_rows.append(
+                    {
+                        "idDetalle": None,
+                        "tipoUbicacion": "U",
+                        "activo": {
+                            "activo": code or None,
+                            "descripcion": "ACTIVO NUEVO",
+                            "idUbicacion": None,
+                            "nombreUbicacion": loc,
+                            "nombreResponsable": None,
+                        },
+                    }
+                )
+
+            # 2) Esperados pero NO escaneados en esta ubicación: N
+            for epc in sorted(expected_l.difference(found_l)):
+                code = epc12_hex_to_asset_code(epc)
+                if not code:
+                    continue
+                src = by_code.get(code)
+                if not src:
+                    continue
+                rr = json.loads(json.dumps(src, ensure_ascii=False))  # deep copy
+                rr["tipoUbicacion"] = "N"
+                out_rows.append(rr)
+
+            out_dir = os.path.abspath(os.path.join(web_dir, "resultados"))
+            os.makedirs(out_dir, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_loc = "".join([c for c in loc if c.isalnum() or c in (" ", "-", "_", "·")]).strip().replace(" ", "_")
+            out_path = os.path.join(out_dir, f"activosPiso2_Computacion_sesion_{safe_loc}_{ts}.json")
+            open(out_path, "w", encoding="utf-8").write(json.dumps(out_rows, ensure_ascii=False, indent=2))
+
+            messagebox.showinfo("Actualización", f"Archivo generado:\n{out_path}")
+        except Exception:
+            # No bloquea el flujo principal
+            return
+
     def cancel_scan(self):
         self._cancel_pending_pistol_start()
         self._scanner.resume()
@@ -1095,9 +1378,10 @@ class HandheldApp(tk.Tk):
             iid = self._tree_expected_items.get(epc)
             if iid is not None:
                 try:
+                    disp = asset_display_from_epc(epc)
                     self.scan_tree.item(
                         iid,
-                        values=("ENCONTRADO", epc, tag.rssi),
+                        values=("ENCONTRADO", disp, tag.rssi),
                         tags=("found",),
                     )
                 except Exception:
@@ -1106,11 +1390,13 @@ class HandheldApp(tk.Tk):
 
         iid_new = self._tree_new_items.get(epc)
         if iid_new is None:
-            iid_new = self.scan_tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+            disp = asset_display_from_epc(epc)
+            iid_new = self.scan_tree.insert("", tk.END, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("new",))
             self._tree_new_items[epc] = iid_new
         else:
             try:
-                self.scan_tree.item(iid_new, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+                disp = asset_display_from_epc(epc)
+                self.scan_tree.item(iid_new, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("new",))
             except Exception:
                 pass
 
@@ -1131,21 +1417,8 @@ class HandheldApp(tk.Tk):
         )
 
         self._result_rows = []
-
-        for epc in r.encontrados:
-            rss = snap["last_rssi"].get(epc, "")
-            self._result_rows.append(
-                {"kind": "encontrado", "status": "ENCONTRADO", "epc": epc, "rssi": rss}
-            )
-        for epc in r.faltantes:
-            self._result_rows.append(
-                {"kind": "faltante", "status": "NO ESCANEADO", "epc": epc, "rssi": ""}
-            )
-        for epc in r.nuevos:
-            rss = snap["last_rssi"].get(epc, "")
-            self._result_rows.append(
-                {"kind": "nuevo", "status": "ACTIVO NUEVO", "epc": epc, "rssi": rss}
-            )
+        self._result_iid_to_epc = {}
+        self._result_rows = build_result_rows(r, snap)
 
         self._filter_mode.set("todos")
         self._apply_result_filter()
@@ -1154,6 +1427,7 @@ class HandheldApp(tk.Tk):
         mode = self._filter_mode.get()
         for item in self.tree.get_children():
             self.tree.delete(item)
+        self._result_iid_to_epc = {}
 
         for row in self._result_rows:
             if mode == "faltantes" and row["kind"] != "faltante":
@@ -1165,12 +1439,15 @@ class HandheldApp(tk.Tk):
                 tag = "missing"
             elif row["kind"] == "nuevo":
                 tag = "new"
-            self.tree.insert(
+            epc = row["epc"]
+            disp = asset_display_from_epc(epc)
+            iid = self.tree.insert(
                 "",
                 tk.END,
-                values=(row["status"], row["epc"], row["rssi"]),
+                values=(row["status"], disp, row["rssi"]),
                 tags=(tag,),
             )
+            self._result_iid_to_epc[iid] = epc
 
     def _on_result_double_click(self, event):
         sel = self.tree.selection()
@@ -1179,8 +1456,10 @@ class HandheldApp(tk.Tk):
         vals = self.tree.item(sel[0], "values")
         if len(vals) < 3:
             return
-        status, epc, rssi = vals[0], vals[1], vals[2]
+        status, _disp, rssi = vals[0], vals[1], vals[2]
+        epc = self._result_iid_to_epc.get(sel[0], "")
         self.detail_epc_var.set(epc)
+        self.detail_code_var.set(asset_code_or_dash(epc))
         self.detail_status_var.set(status)
         self.detail_loc_var.set(self._result_location)
         self.detail_rssi_var.set(rssi if rssi else "—")
