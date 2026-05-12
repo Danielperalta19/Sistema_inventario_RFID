@@ -55,32 +55,19 @@ class Escaner:
             return {"seen_epcs": set(self._epcs_vistos), "last_rssi": dict(self._ultimo_rssi_por_epc)}
 
     def _bucle(self, al_leer_etiqueta, al_error):
-        # USB/serial en Pi a veces falla una ronda y al siguiente vuelve: no cortar el inventario al primer error.
-        max_intentos_lectura = 12
-        pausa_reintento_s = 0.12
         while not self._evento_detener.is_set():
             while self._evento_pausa.is_set() and not self._evento_detener.is_set():
                 time.sleep(0.05)
-            tags = None
-            intentos = 0
-            while not self._evento_detener.is_set():
-                try:
-                    tags = self._lector.leer_etiquetas_una_ronda()
-                    break
-                except Exception as e:
-                    intentos += 1
-                    if intentos >= max_intentos_lectura:
-                        if callable(al_error):
-                            try:
-                                al_error(e)
-                            except Exception:
-                                pass
-                        self._evento_detener.set()
-                        break
-                    time.sleep(pausa_reintento_s)
-            if self._evento_detener.is_set():
-                break
-            if tags is None:
+            try:
+                tags = self._lector.leer_etiquetas_una_ronda()
+            except Exception as e:
+                # Error de serial / desconexión / puerto ocupado, etc.
+                if callable(al_error):
+                    try:
+                        al_error(e)
+                    except Exception:
+                        pass
+                self._evento_detener.set()
                 break
             for indice_en_lote, tag in enumerate(tags):
                 if self._evento_detener.is_set():

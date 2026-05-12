@@ -145,13 +145,6 @@ class AplicacionInventario(tk.Tk):
         Se ejecuta en background para no congelar la UI.
         Requiere sudoers NOPASSWD para el usuario (ej. `user`).
         """
-        # El servicio BLE (rfid-hid-gatt) suele abrir el mismo puerto serial que esta app;
-        # si no liberamos aquí, el inventario puede fallar después o el HID no leer bien.
-        self._liberar_puerto_serial_del_lector()
-        try:
-            self._proximidad_detener()
-        except Exception:
-            pass
         # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
         self._mostrar_marco("modo_hid")
 
@@ -1077,15 +1070,6 @@ class AplicacionInventario(tk.Tk):
             wraplength=440,
             justify="left",
         ).pack(anchor="w", padx=12, pady=2)
-        tk.Label(
-            self._marco_hid,
-            text="Al entrar aquí se cierra el puerto serial de la app para no chocar con el HID. "
-            "Para volver a inventario: Menú → Inventario y vuelve a conectar el lector.",
-            font=("", 8),
-            fg="#444",
-            wraplength=440,
-            justify="left",
-        ).pack(anchor="w", padx=12, pady=(6, 2))
 
     def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
@@ -1180,44 +1164,26 @@ class AplicacionInventario(tk.Tk):
         self._escaner.reanudar()
         self._escaner.iniciar(al_leer_etiqueta=self._al_leer_etiqueta, al_error=self._al_error_escaneo)
 
-    def _liberar_puerto_serial_del_lector(self):
-        """Detiene el pistoleo y cierra el serial (p. ej. modo HID: otro proceso usa el mismo puerto).
-
-        No llama a _proximidad_detener: comparte el mismo Escaner que el inventario y mezclar
-        ambos cortaba lecturas de forma agresiva.
-        """
-        self._cancelar_inicio_pistoleo_pendiente()
-        try:
-            self._escaner.reanudar()
-            self._escaner.detener()
-        except Exception:
-            pass
-        self._detener_temporizador_escaneo()
-        self._ajustar_controles_escaneo_activo(False)
-        try:
-            self._lector.cerrar()
-        except Exception:
-            pass
-
     def _al_error_escaneo(self, e: Exception):
         # Corre en hilo de Escaner; brincar a hilo UI con after()
         def ejecutar_ui():
-            self._liberar_puerto_serial_del_lector()
+            self._cancelar_inicio_pistoleo_pendiente()
+            self._escaner.reanudar()
+            self._escaner.detener()
+            self._detener_temporizador_escaneo()
+            self._ajustar_controles_escaneo_activo(False)
             mensaje_error = (
                 "Se perdió la conexión con el lector (serial).\n\n"
                 f"Detalle: {e}\n\n"
                 "Causas típicas:\n"
                 "- Cable/OTG flojo o el Arduino se reinició\n"
-                "- Otro proceso está usando el puerto (Monitor Serie, o el servicio systemd "
-                "`rfid-hid-gatt` si usa el mismo dispositivo que esta app)\n"
+                "- Otro proceso está usando el puerto (p. ej. Monitor Serie / servicio)\n"
                 "- Puerto equivocado (/dev/ttyUSB0 vs /dev/ttyACM0)\n\n"
                 "Tip: prueba en terminal:\n"
                 "  ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null\n"
-                "  lsof /dev/ttyUSB0 2>/dev/null\n\n"
-                "Tras cerrar este mensaje se abre la pantalla de conexión para reconectar.",
+                "  lsof /dev/ttyUSB0 2>/dev/null\n"
             )
             messagebox.showerror("Lector desconectado", mensaje_error)
-            self._abrir_pantalla_conexion(siguiente_marco="ubicacion")
 
         try:
             self.after(0, ejecutar_ui)
