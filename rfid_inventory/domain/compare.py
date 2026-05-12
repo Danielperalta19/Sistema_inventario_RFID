@@ -1,13 +1,20 @@
-class ComparisonResult:
+"""Comparación pura esperados vs hallados (sin lector ni interfaz)."""
+
+
+class ResultadoComparacion:
+    """Tres listas de EPC (hex): coincidencias, faltantes y etiquetas no esperadas."""
+
     def __init__(self, encontrados, faltantes, nuevos):
         self.encontrados = encontrados
         self.faltantes = faltantes
         self.nuevos = nuevos
 
 
-def compare_expected_found(expected, found):
-    encontrados = sorted(list(expected.intersection(found)))
-    faltantes = sorted(list(expected.difference(found)))
-    nuevos = sorted(list(found.difference(expected)))
-    return ComparisonResult(encontrados=encontrados, faltantes=faltantes, nuevos=nuevos)
-
+def comparar_esperados_y_leidos(esperados, leidos):
+    """Compara dos conjuntos de EPC (hex en minúsculas) y devuelve un ``ResultadoComparacion``."""
+    lista_encontrados = sorted(list(esperados.intersection(leidos)))
+    lista_faltantes = sorted(list(esperados.difference(leidos)))
+    lista_nuevos = sorted(list(leidos.difference(esperados)))
+    return ResultadoComparacion(
+        encontrados=lista_encontrados, faltantes=lista_faltantes, nuevos=lista_nuevos
+    )

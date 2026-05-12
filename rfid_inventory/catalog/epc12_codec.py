@@ -7,21 +7,20 @@ Convención del proyecto:
 
 from __future__ import annotations
 
+_LONGITUD_MAXIMA_BYTES = 12
 
-_MAX = 12
 
-
-def asset_code_to_epc12_hex(code: str) -> str:
-    s = (code or "").strip()
-    b = s.encode("ascii", errors="ignore")[:_MAX]
-    b = b.ljust(_MAX, b"\x00")
+def codigo_activo_a_epc12_hex(codigo: str) -> str:
+    s = (codigo or "").strip()
+    b = s.encode("ascii", errors="ignore")[:_LONGITUD_MAXIMA_BYTES]
+    b = b.ljust(_LONGITUD_MAXIMA_BYTES, b"\x00")
     return b.hex()
 
 
-def epc12_hex_to_asset_code(epc_hex: str) -> str:
+def epc12_hex_a_codigo_activo(epc_en_hex: str) -> str:
     """Devuelve string ASCII sin padding. Si no se puede, retorna ''."""
     try:
-        b = bytes.fromhex((epc_hex or "").strip()[: (_MAX * 2)])
+        b = bytes.fromhex((epc_en_hex or "").strip()[: (_LONGITUD_MAXIMA_BYTES * 2)])
     except Exception:
         return ""
     b = b.split(b"\x00", 1)[0]
@@ -29,4 +28,3 @@ def epc12_hex_to_asset_code(epc_hex: str) -> str:
         return b.decode("ascii", errors="ignore").strip()
     except Exception:
         return ""
-

@@ -1,45 +1,46 @@
+"""Prepara filas para la tabla de resultados a partir del dominio y de la instantánea del escáner."""
+
 from __future__ import annotations
 
 
-def build_result_rows(compare_result, snap: dict) -> list[dict]:
+def construir_filas_resultado(resultado_comparacion, muestra: dict) -> list[dict]:
     """
-    Convierte el resultado de dominio + snapshot del scanner en filas listas para UI.
+    Convierte el resultado de dominio y la instantánea (``instantanea()``) del escáner en filas listas para la interfaz.
 
     Salida: lista de dicts con llaves:
-      - kind: encontrado|faltante|nuevo
-      - status: texto UI
+      - tipo: encontrado|faltante|nuevo
+      - estado: texto UI
       - epc: epc_hex (string)
       - rssi: último rssi si aplica (o "")
     """
-    last_rssi = (snap or {}).get("last_rssi") or {}
+    ultimo_rssi = (muestra or {}).get("last_rssi") or {}
 
-    out: list[dict] = []
-    for epc in getattr(compare_result, "encontrados", []) or []:
-        out.append(
+    salida: list[dict] = []
+    for epc in getattr(resultado_comparacion, "encontrados", []) or []:
+        salida.append(
             {
-                "kind": "encontrado",
-                "status": "ENCONTRADO",
+                "tipo": "encontrado",
+                "estado": "ENCONTRADO",
                 "epc": epc,
-                "rssi": last_rssi.get(epc, ""),
+                "rssi": ultimo_rssi.get(epc, ""),
             }
         )
-    for epc in getattr(compare_result, "faltantes", []) or []:
-        out.append(
+    for epc in getattr(resultado_comparacion, "faltantes", []) or []:
+        salida.append(
             {
-                "kind": "faltante",
-                "status": "NO ESCANEADO",
+                "tipo": "faltante",
+                "estado": "NO ESCANEADO",
                 "epc": epc,
                 "rssi": "",
             }
         )
-    for epc in getattr(compare_result, "nuevos", []) or []:
-        out.append(
+    for epc in getattr(resultado_comparacion, "nuevos", []) or []:
+        salida.append(
             {
-                "kind": "nuevo",
-                "status": "ACTIVO NUEVO",
+                "tipo": "nuevo",
+                "estado": "ACTIVO NUEVO",
                 "epc": epc,
-                "rssi": last_rssi.get(epc, ""),
+                "rssi": ultimo_rssi.get(epc, ""),
             }
         )
-    return out
-
+    return salida

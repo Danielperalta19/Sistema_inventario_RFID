@@ -1,6 +1,3 @@
-"""Drivers: UART real, emulador, mocks."""
+from .r200_driver import LecturaEtiqueta, LectorR200
 
-from .r200_driver import R200Driver, TagRead
-
-__all__ = ["R200Driver", "TagRead"]
-
+__all__ = ["LectorR200", "LecturaEtiqueta"]

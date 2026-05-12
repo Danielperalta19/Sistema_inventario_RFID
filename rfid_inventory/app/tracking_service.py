@@ -4,43 +4,42 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rfid_inventory.catalog.epc12_codec import asset_code_to_epc12_hex, epc12_hex_to_asset_code
+from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo
 
 
 @dataclass(frozen=True)
-class TrackResult:
-    epc_hex: str
-    asset_code: str
-    locations: list[str]
+class ResultadoRastreo:
+    epc_en_hex: str
+    codigo_activo: str
+    ubicaciones: list[str]
 
 
-class TrackingService:
-    def __init__(self, nested_locations: dict[str, dict[str, list[str]]]):
-        self._epc_index: dict[str, list[str]] = {}
-        for edif, rooms in (nested_locations or {}).items():
-            for sala, epcs in (rooms or {}).items():
-                loc = f"{edif} · {sala}"
-                for epc in epcs or []:
-                    self._epc_index.setdefault(str(epc).lower(), []).append(loc)
+class ServicioRastreo:
+    def __init__(self, ubicaciones_anidadas: dict[str, dict[str, list[str]]]):
+        self._indice_epc_a_ubicaciones: dict[str, list[str]] = {}
+        for edificio, salas in (ubicaciones_anidadas or {}).items():
+            for sala, lista_epcs in (salas or {}).items():
+                texto_ubicacion = f"{edificio} · {sala}"
+                for epc in lista_epcs or []:
+                    self._indice_epc_a_ubicaciones.setdefault(str(epc).lower(), []).append(texto_ubicacion)
 
-    def normalize_input(self, s: str) -> tuple[str, str]:
-        raw = (s or "").strip()
-        if not raw:
+    def normalizar_entrada(self, texto: str) -> tuple[str, str]:
+        en_bruto = (texto or "").strip()
+        if not en_bruto:
             return ("", "")
-        token = raw.split(",")[0].strip().split()[0].strip()
-        t = token.lower()
-        hexchars = "0123456789abcdef"
-        if len(t) >= 24 and all(c in hexchars for c in t[:24]):
-            epc = t[:24]
-            return (epc, epc12_hex_to_asset_code(epc))
-        code = token
-        epc = asset_code_to_epc12_hex(code)
-        return (epc, code)
+        ficha = en_bruto.split(",")[0].strip().split()[0].strip()
+        ficha_min = ficha.lower()
+        hex_validos = "0123456789abcdef"
+        if len(ficha_min) >= 24 and all(c in hex_validos for c in ficha_min[:24]):
+            epc = ficha_min[:24]
+            return (epc, epc12_hex_a_codigo_activo(epc))
+        codigo = ficha
+        epc = codigo_activo_a_epc12_hex(codigo)
+        return (epc, codigo)
 
-    def track(self, s: str) -> TrackResult | None:
-        epc, code = self.normalize_input(s)
+    def rastrear(self, texto: str) -> ResultadoRastreo | None:
+        epc, codigo = self.normalizar_entrada(texto)
         if not epc:
             return None
-        locs = self._epc_index.get(epc.lower(), [])
-        return TrackResult(epc_hex=epc, asset_code=code or "", locations=locs)
-
+        lista_ubic = self._indice_epc_a_ubicaciones.get(epc.lower(), [])
+        return ResultadoRastreo(epc_en_hex=epc, codigo_activo=codigo or "", ubicaciones=lista_ubic)

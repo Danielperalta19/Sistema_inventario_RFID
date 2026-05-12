@@ -2,79 +2,78 @@ import os
 import secrets
 from dataclasses import dataclass
 
-from rfid_inventory.catalog.epc12_codec import asset_code_to_epc12_hex, epc12_hex_to_asset_code
+from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo
 
 
 @dataclass(frozen=True)
-class TagScanResult:
-    epc_hex: str
-    decoded_code: str | None
-    simulated: bool
+class ResultadoLecturaEtiqueta:
+    """Resultado de leer una etiqueta (EPC en hex, código decodificado si aplica, bandera simulación)."""
+
+    epc_en_hex: str
+    codigo_decodificado: str | None
+    simulado: bool
 
 
 @dataclass(frozen=True)
-class TagWriteResult:
-    new_epc_hex: str
-    simulated: bool
+class ResultadoEscrituraEtiqueta:
+    """Resultado de programar el EPC (hex nuevo y si fue simulación)."""
+
+    epc_nuevo_en_hex: str
+    simulado: bool
 
 
-class TagWriterService:
-    """
-    Capa de aplicación para el módulo "Escribir etiqueta".
+class ServicioEscrituraEtiquetas:
+    """Lógica del módulo «Escribir etiqueta»: simulación o lector real, fuera de la interfaz."""
 
-    - Mantiene la lógica (simulación vs hardware real) fuera de la UI.
-    - La UI solo renderiza strings y llama a este servicio.
-    """
-
-    def __init__(self) -> None:
-        self._sim_bank: set[str] = set()
-        self._use_hardware = os.environ.get("RFID_WRITE_USE_HARDWARE", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
+    def __init__(self, usar_hardware: bool | None = None) -> None:
+        """Si ``usar_hardware`` es ``None``, se usa solo la variable ``RFID_WRITE_USE_HARDWARE`` (compatibilidad). La app suele pasar un valor ya resuelto desde ``config.json``."""
+        self._banco_epcs_simulados: set[str] = set()
+        if usar_hardware is None:
+            usar_hardware = os.environ.get("RFID_WRITE_USE_HARDWARE", "").strip() in {"1", "true", "TRUE", "yes", "YES"}
+        self._usar_hardware = bool(usar_hardware)
 
     @property
-    def use_hardware(self) -> bool:
-        return self._use_hardware
+    def usar_hardware(self) -> bool:
+        return self._usar_hardware
 
-    def scan_one_tag(self, driver) -> TagScanResult:
-        """
-        Lee 1 tag. Si `RFID_WRITE_USE_HARDWARE=1` usa el driver real, si no simula.
-        """
-        if not self._use_hardware:
+    def escanear_una_etiqueta(self, lector) -> ResultadoLecturaEtiqueta:
+        """Lee una etiqueta. Con hardware activado usa el lector; si no, genera un EPC simulado."""
+        if not self._usar_hardware:
             epc = secrets.token_bytes(12).hex()
-            while epc in self._sim_bank:
+            while epc in self._banco_epcs_simulados:
                 epc = secrets.token_bytes(12).hex()
-            self._sim_bank.add(epc)
-            return TagScanResult(epc_hex=epc, decoded_code=None, simulated=True)
+            self._banco_epcs_simulados.add(epc)
+            return ResultadoLecturaEtiqueta(epc_en_hex=epc, codigo_decodificado=None, simulado=True)
 
-        if not getattr(driver, "connected", False):
+        if not getattr(lector, "connected", False):
             raise RuntimeError("No hay lector conectado.")
-        t = driver.read_one_tag_single_poll()
+        t = lector.leer_primera_etiqueta_una_encuesta()
         if not t:
             raise RuntimeError("No se detectó ninguna etiqueta.")
         epc = (t.epc_hex or "").strip().lower()
-        return TagScanResult(epc_hex=epc, decoded_code=epc12_hex_to_asset_code(epc), simulated=False)
+        return ResultadoLecturaEtiqueta(
+            epc_en_hex=epc, codigo_decodificado=epc12_hex_a_codigo_activo(epc), simulado=False
+        )
 
-    def compute_new_epc(self, asset_code: str) -> str | None:
-        code = (asset_code or "").strip()
-        if not code:
+    def calcular_epc_desde_codigo(self, codigo_activo: str) -> str | None:
+        codigo = (codigo_activo or "").strip()
+        if not codigo:
             return None
-        return asset_code_to_epc12_hex(code)
+        return codigo_activo_a_epc12_hex(codigo)
 
-    def write_epc(self, driver, current_epc_hex: str, new_epc_hex: str) -> TagWriteResult:
-        """
-        Programa el EPC. Si `RFID_WRITE_USE_HARDWARE=1` usa el driver real, si no simula.
-        """
-        cur = (current_epc_hex or "").strip().lower()
-        new = (new_epc_hex or "").strip().lower()
-        if not cur:
+    def programar_epc(self, lector, epc_actual_hex: str, epc_nuevo_hex: str) -> ResultadoEscrituraEtiqueta:
+        """Programa el EPC en la etiqueta o simula el resultado según ``usar_hardware``."""
+        actual = (epc_actual_hex or "").strip().lower()
+        nuevo = (epc_nuevo_hex or "").strip().lower()
+        if not actual:
             raise RuntimeError("Primero escanea una etiqueta (EPC actual).")
-        if not new:
+        if not nuevo:
             raise RuntimeError("Escribe el código del activo para generar el EPC nuevo.")
 
-        if not self._use_hardware:
-            return TagWriteResult(new_epc_hex=new, simulated=True)
+        if not self._usar_hardware:
+            return ResultadoEscrituraEtiqueta(epc_nuevo_en_hex=nuevo, simulado=True)
 
-        if not getattr(driver, "connected", False):
+        if not getattr(lector, "connected", False):
             raise RuntimeError("No hay lector conectado.")
-        driver.write_epc12_hex(current_epc_hex=cur, new_epc12_hex=new)
-        return TagWriteResult(new_epc_hex=new, simulated=False)
-
+        lector.programar_epc12_en_etiqueta(epc_actual_hex=actual, epc_nuevo_hex=nuevo)
+        return ResultadoEscrituraEtiqueta(epc_nuevo_en_hex=nuevo, simulado=False)

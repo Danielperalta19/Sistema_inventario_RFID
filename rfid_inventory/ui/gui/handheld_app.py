@@ -1,3 +1,8 @@
+"""Interfaz gráfica principal (Tkinter): inventario, rastreo, escritura de etiqueta y modo HID.
+
+Pantalla de diseño: 480×320 (por ejemplo Waveshare en Raspberry Pi).
+"""
+
 import os
 import shutil
 import subprocess
@@ -9,20 +14,28 @@ import json
 import datetime
 import random
 
-from rfid_inventory.app import Scanner
-from rfid_inventory.app.inventory_presenter import build_result_rows
-from rfid_inventory.app.inventory_service import InventoryService
-from rfid_inventory.app.proximity_tracker import ProximityTracker
-from rfid_inventory.app.tag_writer_service import TagWriterService
-from rfid_inventory.app.tracking_service import TrackingService
-from rfid_inventory.catalog.catalog_loader import default_catalog_paths, flatten_locations, load_locations_nested_from_json
-from rfid_inventory.catalog.epc12_codec import asset_code_to_epc12_hex
-from rfid_inventory.catalog.epc12_codec import epc12_hex_to_asset_code
-from rfid_inventory.drivers import R200Driver
-from rfid_inventory.ui.ui_formatters import asset_code_or_dash, asset_display_from_epc, write_status_programmed
+from rfid_inventory.app import Escaner
+from rfid_inventory.app.inventory_presenter import construir_filas_resultado
+from rfid_inventory.app.inventory_service import ServicioInventario
+from rfid_inventory.app.proximity_tracker import RastreadorProximidad
+from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
+from rfid_inventory.app.tracking_service import ServicioRastreo
+from rfid_inventory.app.app_config import cargar_configuracion_aplicacion, hardware_escritura_resuelto
+from rfid_inventory.catalog.catalog_loader import (
+    aplanar_ubicaciones_a_mapa_epcs,
+    cargar_ubicaciones_anidadas_desde_json,
+    rutas_catalogo_por_defecto,
+)
+from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo
+from rfid_inventory.drivers import LectorR200
+from rfid_inventory.ui.ui_formatters import (
+    codigo_activo_o_guion_desde_epc,
+    estado_escritura_programada,
+    mostrar_activo_desde_epc,
+)
 
 
-def _mock_locations_nested():
+def _ubicaciones_ejemplo_anidadas():
     """Fallback si no existen los JSON: edificio -> sala -> lista de EPC (hex)."""
     pairs = [
         ("Edificio Central", "Lab A-101"),
@@ -43,12 +56,12 @@ def _mock_locations_nested():
     return out
 
 
-def _location_label(edificio, sala):
+def _texto_ubicacion(edificio, sala):
     return "{0} · {1}".format(edificio, sala)
 
 
-class HandheldApp(tk.Tk):
-    _LOG_MAX_LINES = 4
+class AplicacionInventario(tk.Tk):
+    _MAX_LINEAS_LOG_ESCANEO = 3
 
     def __init__(self):
         super().__init__()
@@ -56,85 +69,90 @@ class HandheldApp(tk.Tk):
         self.geometry("480x320")
         self.minsize(480, 320)
 
-        self._scan_started_ms = None
-        self._scan_timer_job = None
-        self._pistol_start_job = None
-        self._expected_set = set()
-        self._recent_log = []
-        self._tree_expected_items = {}
-        self._tree_new_items = {}
+        self._escaneo_inicio_ms = None
+        self._tarea_temporizador_escaneo = None
+        self._tarea_inicio_pistoleo = None
+        self._conjunto_epcs_esperados = set()
+        self._lineas_log_escaneo = []
+        self._arbol_escaneo_items_esperados = {}
+        self._arbol_escaneo_items_nuevos = {}
 
-        self._result_location = ""
-        self._result_rows = []
-        self._result_iid_to_epc = {}
-        self._last_snap = None
-        self._filter_mode = tk.StringVar(value="todos")
+        self._ubicacion_texto_resultados = ""
+        self._filas_resultados_inventario = []
+        self._resultado_iid_a_epc = {}
+        self._ultima_muestra_escaneo = None
+        self._modo_filtro_resultados = tk.StringVar(value="todos")
 
-        self._driver = R200Driver()
-        self._scanner = Scanner(self._driver)
+        self._lector = LectorR200()
+        self._escaner = Escaner(self._lector)
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        cat_paths = default_catalog_paths(repo_root)
-        self._nested_locations = load_locations_nested_from_json(cat_paths) or _mock_locations_nested()
-        self._locations = flatten_locations(self._nested_locations)
-        self._inventory = InventoryService(self._locations, self._scanner)
+        self._configuracion = cargar_configuracion_aplicacion(repo_root)
+        rutas_catalogo = rutas_catalogo_por_defecto(
+            repo_root, prefer_web_dir=self._configuracion.catalogo.preferir_directorio_web
+        )
+        self._ubicaciones_anidadas = (
+            cargar_ubicaciones_anidadas_desde_json(rutas_catalogo) or _ubicaciones_ejemplo_anidadas()
+        )
+        self._mapa_ubicacion_a_epcs = aplanar_ubicaciones_a_mapa_epcs(self._ubicaciones_anidadas)
+        self._servicio_inventario = ServicioInventario(self._mapa_ubicacion_a_epcs, self._escaner)
 
-        self._tracking = TrackingService(self._nested_locations)
-        self._prox = ProximityTracker(alpha=0.25)
-        self._tag_writer = TagWriterService()
-        self._prox_running = False
-        self._prox_ui_job = None
-        # Modo demostrativo: forzar simulación aunque haya lector conectado.
-        # Cuando tengas el lector real, cambia a False para usar RSSI real del tag objetivo.
-        self._prox_force_sim = True
+        self._servicio_rastreo = ServicioRastreo(self._ubicaciones_anidadas)
+        self._rastreador_proximidad = RastreadorProximidad(alpha=0.25)
+        self._servicio_escritura = ServicioEscrituraEtiquetas(
+            usar_hardware=hardware_escritura_resuelto(self._configuracion)
+        )
+        self._forzar_sim_proximidad = bool(self._configuracion.funciones.forzar_simulacion_proximidad)
+        self._proximidad_activa = False
+        self._tarea_ui_proximidad = None
 
-        self._init_style()
+        self._inicializar_estilos()
 
-        self.container = tk.Frame(self)
-        self.container.pack(fill="both", expand=True)
+        self.contenedor = tk.Frame(self)
+        self.contenedor.pack(fill="both", expand=True)
 
-        self._frame_menu = None
-        self._frame_start = None
-        self._frame_connect = None
-        self._frame_setup = None
-        self._frame_scan = None
-        self._frame_result = None
-        self._frame_detail = None
-        self._frame_rastreo = None
-        self._frame_escritura = None
-        self._frame_hid = None
+        self._marco_menu = None
+        self._marco_inicio = None
+        self._marco_conexion = None
+        self._marco_ubicacion = None
+        self._marco_escaneo = None
+        self._marco_resultados = None
+        self._marco_detalle = None
+        self._marco_rastreo = None
+        self._marco_escritura = None
+        self._marco_hid = None
 
-        # A dónde avanzar después de conectar (menu o setup)
-        self._connect_next = "menu"
+        # A dónde avanzar después de conectar (menú o pantalla de ubicación)
+        self._marco_despues_conexion = "menu"
 
-        self._build_start()
-        self._build_menu()
-        self._build_connect()
-        self._build_setup()
-        self._build_scan()
-        self._build_result()
-        self._build_detail()
-        self._build_rastreo()
-        self._build_escritura()
-        self._build_hid()
+        self._construir_inicio()
+        self._construir_menu()
+        self._construir_conexion()
+        self._construir_ubicacion()
+        self._construir_escaneo()
+        self._construir_resultados()
+        self._construir_detalle()
+        self._construir_rastreo()
+        self._construir_escritura()
+        self._construir_hid()
 
-        self._show_frame("start")
+        self._mostrar_marco("inicio")
 
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
 
-    def _hid_enable_advertising_and_open(self):
+    def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
 
         Se ejecuta en background para no congelar la UI.
         Requiere sudoers NOPASSWD para el usuario (ej. `user`).
         """
         # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
-        self._show_frame("hid")
+        self._mostrar_marco("modo_hid")
 
         # Solo intentamos ejecutar btmgmt en Linux.
         if os.name != "posix":
             return
 
-        def worker():
+        def hilo_trabajador():
             btmgmt = shutil.which("btmgmt") or "/usr/bin/btmgmt"
             cmd = ["sudo", "-n", btmgmt, "-i", "hci0", "advertising", "on"]
             try:
@@ -164,9 +182,9 @@ class HandheldApp(tk.Tk):
                     ),
                 )
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=hilo_trabajador, daemon=True).start()
 
-    def _suggest_pi_serial_port(self) -> str:
+    def _sugerir_puerto_serial_pi(self) -> str:
         """Devuelve un puerto serial estable para Raspberry Pi (si existe).
 
         Preferimos `/dev/serial/by-id/*` para evitar que cambie ttyUSB0/ttyUSB1.
@@ -181,7 +199,7 @@ class HandheldApp(tk.Tk):
                     p = os.path.join(by_id, name)
                     if os.path.islink(p) or os.path.exists(p):
                         return p
-            # fallback: ttyUSB*, luego ttyACM*
+            # Respaldo: /dev/ttyUSB* y luego /dev/ttyACM*
             for i in range(0, 6):
                 p = f"/dev/ttyUSB{i}"
                 if os.path.exists(p):
@@ -194,84 +212,84 @@ class HandheldApp(tk.Tk):
             pass
         return ""
 
-    def _location_key(self):
-        return _location_label(self.building_var.get(), self.room_var.get())
+    def _clave_ubicacion_actual(self):
+        return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
-    def _init_style(self):
+    def _inicializar_estilos(self):
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except Exception:
             pass
         # Ajuste compacto para 480×320 (Waveshare): balance legibilidad/espacio.
-        style.configure("Treeview", rowheight=18)
+        style.configure("Treeview", rowheight=16)
         style.configure("Treeview.Heading", font=("", 8, "bold"))
         style.configure("Handheld.TButton", font=("", 10))
         style.configure("HandheldBig.TButton", font=("", 12))
 
-    def _show_frame(self, name):
-        for w in self.container.winfo_children():
+    def _mostrar_marco(self, nombre_marco):
+        for w in self.contenedor.winfo_children():
             w.pack_forget()
-        if name == "start":
-            self._frame_start.pack(fill="both", expand=True)
-        elif name == "menu":
-            self._frame_menu.pack(fill="both", expand=True)
-        elif name == "connect":
-            self._frame_connect.pack(fill="both", expand=True)
-        elif name == "setup":
-            self._frame_setup.pack(fill="both", expand=True)
-        elif name == "scan":
-            self._frame_scan.pack(fill="both", expand=True)
-        elif name == "result":
-            self._frame_result.pack(fill="both", expand=True)
-        elif name == "detail":
-            self._frame_detail.pack(fill="both", expand=True)
-        elif name == "rastreo":
-            self._frame_rastreo.pack(fill="both", expand=True)
-        elif name == "escritura":
-            self._frame_escritura.pack(fill="both", expand=True)
-        elif name == "hid":
-            self._frame_hid.pack(fill="both", expand=True)
+        if nombre_marco == "inicio":
+            self._marco_inicio.pack(fill="both", expand=True)
+        elif nombre_marco == "menu":
+            self._marco_menu.pack(fill="both", expand=True)
+        elif nombre_marco == "conexion":
+            self._marco_conexion.pack(fill="both", expand=True)
+        elif nombre_marco == "ubicacion":
+            self._marco_ubicacion.pack(fill="both", expand=True)
+        elif nombre_marco == "escaneo":
+            self._marco_escaneo.pack(fill="both", expand=True)
+        elif nombre_marco == "resultados":
+            self._marco_resultados.pack(fill="both", expand=True)
+        elif nombre_marco == "detalle":
+            self._marco_detalle.pack(fill="both", expand=True)
+        elif nombre_marco == "rastreo":
+            self._marco_rastreo.pack(fill="both", expand=True)
+        elif nombre_marco == "escritura":
+            self._marco_escritura.pack(fill="both", expand=True)
+        elif nombre_marco == "modo_hid":
+            self._marco_hid.pack(fill="both", expand=True)
 
-    def _build_start(self):
-        self._frame_start = tk.Frame(self.container)
+    def _construir_inicio(self):
+        self._marco_inicio = tk.Frame(self.contenedor)
 
         tk.Label(
-            self._frame_start,
+            self._marco_inicio,
             text="Sistema de Inventario RFID",
             font=("", 15, "bold"),
         ).pack(pady=(28, 6))
 
         tk.Label(
-            self._frame_start,
+            self._marco_inicio,
             text="Pantalla 480×320 · Raspberry Pi",
             font=("", 8),
             fg="#555",
         ).pack(pady=(0, 14))
 
         ttk.Button(
-            self._frame_start,
+            self._marco_inicio,
             text="Iniciar",
             style="HandheldBig.TButton",
-            command=lambda: self._enter_connect(next_frame="menu"),
+            command=lambda: self._abrir_pantalla_conexion(siguiente_marco="menu"),
         ).pack(fill="x", padx=28, ipady=6)
 
-    def _build_menu(self):
-        self._frame_menu = tk.Frame(self.container)
+    def _construir_menu(self):
+        self._marco_menu = tk.Frame(self.contenedor)
 
         tk.Label(
-            self._frame_menu,
+            self._marco_menu,
             text="Sistema de Inventario RFID",
             font=("", 14, "bold"),
         ).pack(pady=(6, 2))
         tk.Label(
-            self._frame_menu,
+            self._marco_menu,
             text="Elige una opción",
             font=("", 8),
             fg="#555",
         ).pack(pady=(0, 6))
 
-        def big(parent, text, command):
+        def boton_grande(parent, text, command):
             b = ttk.Button(
                 parent,
                 text=text,
@@ -281,332 +299,328 @@ class HandheldApp(tk.Tk):
             b.pack(fill="x", padx=14, pady=3, ipady=4)
             return b
 
-        big(
-            self._frame_menu,
+        boton_grande(
+            self._marco_menu,
             "Inventario en ubicación",
-            self._enter_inventory,
+            self._entrar_inventario_ubicacion,
         )
-        big(
-            self._frame_menu,
+        boton_grande(
+            self._marco_menu,
             "Rastrear activo",
-            self._enter_rastreo,
+            self._entrar_rastreo,
         )
-        big(
-            self._frame_menu,
+        boton_grande(
+            self._marco_menu,
             "Escribir etiqueta",
-            lambda: self._show_frame("escritura"),
+            lambda: self._mostrar_marco("escritura"),
         )
-        big(
-            self._frame_menu,
+        boton_grande(
+            self._marco_menu,
             "Modo Lector Bluetooth",
-            self._hid_enable_advertising_and_open,
+            self._habilitar_publicidad_ble_y_abrir_modo_hid,
         )
 
-    def _build_connect(self):
+    def _construir_conexion(self):
         """Lector serial: conectar y seguir a selección de ubicación (flujograma: inventario del lugar)."""
-        self._frame_connect = tk.Frame(self.container)
+        self._marco_conexion = tk.Frame(self.contenedor)
 
         ttk.Button(
-            self._frame_connect,
+            self._marco_conexion,
             text="Inicio",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("start"),
+            command=lambda: self._mostrar_marco("inicio"),
         ).pack(anchor="w", padx=8, pady=(4, 0))
 
         tk.Label(
-            self._frame_connect,
+            self._marco_conexion,
             text="Inventario en ubicación",
             font=("", 13, "bold"),
         ).pack(pady=(3, 2))
 
         tk.Label(
-            self._frame_connect,
+            self._marco_conexion,
             text="Conecta el lector RFID al puerto",
             font=("", 8),
             wraplength=440,
             justify="center",
         ).pack(pady=(0, 6))
 
-        row = tk.Frame(self._frame_connect)
+        row = tk.Frame(self._marco_conexion)
         row.pack(fill="x", padx=12, pady=3)
 
         tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
         # Default: si estamos en Pi, sugiere /dev/serial/by-id; si no, COM5.
-        default_port = self._suggest_pi_serial_port() if os.name == "posix" else "COM5"
-        self.port_var = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
-        tk.Entry(row, textvariable=self.port_var, width=20, font=("", 10)).pack(side="left", padx=(4, 6))
+        default_port = (
+            self._sugerir_puerto_serial_pi()
+            if os.name == "posix"
+            else self._configuracion.serie.puerto_defecto_windows
+        )
+        if os.name == "posix" and not default_port:
+            default_port = self._configuracion.serie.puerto_defecto_pi_respaldo
+        self.var_puerto_serial = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
+        tk.Entry(row, textvariable=self.var_puerto_serial, width=20, font=("", 10)).pack(side="left", padx=(4, 6))
 
-        def set_windows_port():
-            self.port_var.set("COM5")
+        def poner_puerto_windows():
+            self.var_puerto_serial.set("COM5")
 
-        def set_pi_port():
-            p = self._suggest_pi_serial_port()
+        def poner_puerto_pi():
+            p = self._sugerir_puerto_serial_pi()
             if p:
-                self.port_var.set(p)
+                self.var_puerto_serial.set(p)
             else:
-                self.port_var.set("/dev/ttyUSB0")
+                self.var_puerto_serial.set("/dev/ttyUSB0")
 
-        ttk.Button(row, text="Windows", style="Handheld.TButton", command=set_windows_port).pack(side="left", padx=(0, 4))
-        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=set_pi_port).pack(side="left", padx=(0, 0))
+        ttk.Button(row, text="Windows", style="Handheld.TButton", command=poner_puerto_windows).pack(side="left", padx=(0, 4))
+        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=poner_puerto_pi).pack(side="left", padx=(0, 0))
 
         # Segunda fila: baud + conectar (evita overflow horizontal en 480×320)
-        row2 = tk.Frame(self._frame_connect)
+        row2 = tk.Frame(self._marco_conexion)
         row2.pack(fill="x", padx=12, pady=(0, 3))
 
         tk.Label(row2, text="Baud:", font=("", 10)).pack(side="left")
-        self.baud_var = tk.StringVar(value="115200")
-        tk.Entry(row2, textvariable=self.baud_var, width=8, font=("", 10)).pack(side="left", padx=(4, 8))
+        self.var_baudios = tk.StringVar(value=str(self._configuracion.serie.baudios))
+        tk.Entry(row2, textvariable=self.var_baudios, width=8, font=("", 10)).pack(side="left", padx=(4, 8))
 
-        self.btn_connect = ttk.Button(row2, text="Conectar", command=self.connect, style="HandheldBig.TButton")
-        self.btn_connect.pack(side="left", fill="x", expand=True, padx=(0, 0), ipady=2)
+        self.btn_conectar_lector = ttk.Button(row2, text="Conectar", command=self.conectar_lector, style="HandheldBig.TButton")
+        self.btn_conectar_lector.pack(side="left", fill="x", expand=True, padx=(0, 0), ipady=2)
 
-        self.home_status_var = tk.StringVar(value="Lector: desconectado")
+        self.var_estado_lector = tk.StringVar(value="Lector: desconectado")
         tk.Label(
-            self._frame_connect, textvariable=self.home_status_var, font=("", 8), wraplength=440, justify="center"
+            self._marco_conexion, textvariable=self.var_estado_lector, font=("", 8), wraplength=440, justify="center"
         ).pack(fill="x", padx=12, pady=(6, 6))
 
-        self.btn_continue = ttk.Button(
-            self._frame_connect,
+        self.btn_continuar = ttk.Button(
+            self._marco_conexion,
             text="Continuar",
             style="HandheldBig.TButton",
-            command=self._after_connect_continue,
+            command=self._continuar_tras_conexion,
             state="disabled",
         )
-        self.btn_continue.pack(pady=4, ipadx=16, ipady=6)
+        self.btn_continuar.pack(pady=4, ipadx=16, ipady=6)
 
-    def _enter_connect(self, next_frame: str):
-        """Pantalla de conexión reutilizable: al conectar, avanza a next_frame."""
-        self._connect_next = next_frame or "menu"
+    def _abrir_pantalla_conexion(self, siguiente_marco: str):
+        """Pantalla de conexión reutilizable: al conectar, avanza a siguiente_marco."""
+        self._marco_despues_conexion = siguiente_marco or "menu"
         # Texto del botón de continuar según el flujo
-        if self._connect_next == "setup":
-            self.btn_continue.config(text="Continuar (ubicación)")
+        if self._marco_despues_conexion == "ubicacion":
+            self.btn_continuar.config(text="Continuar (ubicación)")
         else:
-            self.btn_continue.config(text="Ir al menú")
+            self.btn_continuar.config(text="Ir al menú")
 
         # Si ya está conectado, habilita continuar sin reconectar
-        if self._driver.connected:
-            self.home_status_var.set("Lector: conectado")
-            self.btn_connect.config(state="disabled")
-            self.btn_continue.config(state="normal")
+        if self._lector.connected:
+            self.var_estado_lector.set("Lector: conectado")
+            self.btn_conectar_lector.config(state="disabled")
+            self.btn_continuar.config(state="normal")
         else:
-            self.home_status_var.set("Lector: desconectado")
-            self.btn_connect.config(state="normal")
-            self.btn_continue.config(state="disabled")
+            self.var_estado_lector.set("Lector: desconectado")
+            self.btn_conectar_lector.config(state="normal")
+            self.btn_continuar.config(state="disabled")
 
-        self._show_frame("connect")
+        self._mostrar_marco("conexion")
 
-    def _after_connect_continue(self):
-        if self._connect_next == "setup":
-            self._show_frame("setup")
+    def _continuar_tras_conexion(self):
+        if self._marco_despues_conexion == "ubicacion":
+            self._mostrar_marco("ubicacion")
         else:
-            self._show_frame("menu")
+            self._mostrar_marco("menu")
 
-    def _enter_inventory(self):
+    def _entrar_inventario_ubicacion(self):
         """Entrar al módulo de inventario por ubicación."""
-        if self._driver.connected:
-            self._show_frame("setup")
+        if self._lector.connected:
+            self._mostrar_marco("ubicacion")
         else:
-            self._enter_connect(next_frame="setup")
+            self._abrir_pantalla_conexion(siguiente_marco="ubicacion")
 
-    def _build_setup(self):
-        self._frame_setup = tk.Frame(self.container)
+    def _construir_ubicacion(self):
+        self._marco_ubicacion = tk.Frame(self.contenedor)
 
-        tk.Label(self._frame_setup, text="Ubicación del inventario", font=("", 11, "bold")).pack(
+        tk.Label(self._marco_ubicacion, text="Ubicación del inventario", font=("", 11, "bold")).pack(
             anchor="w", padx=12, pady=(8, 6)
         )
 
-        row_b = tk.Frame(self._frame_setup)
+        row_b = tk.Frame(self._marco_ubicacion)
         row_b.pack(fill="x", padx=12, pady=4)
         tk.Label(row_b, text="Edificio:", font=("", 10)).pack(anchor="w")
-        buildings = sorted(list(self._nested_locations.keys()))
-        self.building_var = tk.StringVar(value=buildings[0])
-        self.building_combo = ttk.Combobox(
+        buildings = sorted(list(self._ubicaciones_anidadas.keys()))
+        self.var_edificio = tk.StringVar(value=buildings[0])
+        self.combo_edificio = ttk.Combobox(
             row_b,
-            textvariable=self.building_var,
+            textvariable=self.var_edificio,
             values=buildings,
             state="readonly",
             width=32,
             font=("", 10),
         )
-        self.building_combo.pack(fill="x", pady=(2, 0))
+        self.combo_edificio.pack(fill="x", pady=(2, 0))
 
-        row_r = tk.Frame(self._frame_setup)
+        row_r = tk.Frame(self._marco_ubicacion)
         row_r.pack(fill="x", padx=12, pady=6)
         tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
-        self.room_var = tk.StringVar()
-        first_rooms = sorted(list(self._nested_locations[buildings[0]].keys()))
-        self.room_var.set(first_rooms[0])
-        self.room_combo = ttk.Combobox(
+        self.var_sala = tk.StringVar()
+        first_rooms = sorted(list(self._ubicaciones_anidadas[buildings[0]].keys()))
+        self.var_sala.set(first_rooms[0])
+        self.combo_sala = ttk.Combobox(
             row_r,
-            textvariable=self.room_var,
+            textvariable=self.var_sala,
             values=first_rooms,
             state="readonly",
             width=32,
             font=("", 10),
         )
-        self.room_combo.pack(fill="x", pady=(2, 0))
+        self.combo_sala.pack(fill="x", pady=(2, 0))
 
-        self.building_combo.bind("<<ComboboxSelected>>", self._on_building_selected)
-        self.room_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_setup_hint())
+        self.combo_edificio.bind("<<ComboboxSelected>>", self._al_seleccionar_edificio)
+        self.combo_sala.bind("<<ComboboxSelected>>", lambda _e: self._actualizar_pista_ubicacion())
 
-        self.setup_hint_var = tk.StringVar(value="")
-        tk.Label(self._frame_setup, textvariable=self.setup_hint_var, font=("", 8), fg="#444", wraplength=440).pack(
+        self.var_pista_ubicacion = tk.StringVar(value="")
+        tk.Label(self._marco_ubicacion, textvariable=self.var_pista_ubicacion, font=("", 8), fg="#444", wraplength=440).pack(
             fill="x", padx=12, pady=(3, 6)
         )
-        self._refresh_setup_hint()
+        self._actualizar_pista_ubicacion()
 
-        row_btns = tk.Frame(self._frame_setup)
+        row_btns = tk.Frame(self._marco_ubicacion)
         row_btns.pack(fill="x", side="bottom", pady=8)
 
         ttk.Button(
             row_btns,
             text="Atrás",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("menu"),
+            command=lambda: self._mostrar_marco("menu"),
         ).pack(side="left", padx=8)
 
-        self.btn_to_scan = ttk.Button(
+        self.btn_ir_escaneo = ttk.Button(
             row_btns,
             text="Siguiente",
             style="HandheldBig.TButton",
-            command=self.go_to_scan_screen,
+            command=self.ir_a_pantalla_escaneo,
         )
-        self.btn_to_scan.pack(side="right", padx=8, ipadx=8, ipady=4)
+        self.btn_ir_escaneo.pack(side="right", padx=8, ipadx=8, ipady=4)
 
-    def _refresh_setup_hint(self):
-        self.setup_hint_var.set("Selección: {0}".format(self._location_key()))
+    def _actualizar_pista_ubicacion(self):
+        self.var_pista_ubicacion.set("Selección: {0}".format(self._clave_ubicacion_actual()))
 
-    def _on_building_selected(self, event=None):
-        ed = self.building_var.get()
-        rooms = sorted(list(self._nested_locations.get(ed, {}).keys()))
-        self.room_combo["values"] = rooms
+    def _al_seleccionar_edificio(self, event=None):
+        ed = self.var_edificio.get()
+        rooms = sorted(list(self._ubicaciones_anidadas.get(ed, {}).keys()))
+        self.combo_sala["values"] = rooms
         if rooms:
-            self.room_var.set(rooms[0])
-        self._refresh_setup_hint()
+            self.var_sala.set(rooms[0])
+        self._actualizar_pista_ubicacion()
 
-    def _build_scan(self):
-        self._frame_scan = tk.Frame(self.container)
+    def _construir_escaneo(self):
+        self._marco_escaneo = tk.Frame(self.contenedor)
 
-        top = tk.Frame(self._frame_scan)
-        top.pack(fill="x", padx=10, pady=(4, 2))
+        top = tk.Frame(self._marco_escaneo)
+        top.pack(fill="x", padx=10, pady=(3, 1))
 
         tk.Label(
             top,
-            text="Precarga lista — inicia el pistoleo cuando quieras",
+            text="Inicia el pistoleo cuando quieras",
             font=("", 8, "bold"),
             fg="#2E7D32",
         ).pack(anchor="w", fill="x")
 
-        self.scan_line_location = tk.StringVar(value="Ubicación: —")
-        self.scan_line_time = tk.StringVar(value="Tiempo: 0.0 s")
-        self.scan_line_counts = tk.StringVar(value="Esperados: 0 | Leídos únicos: 0")
+        self.var_linea_ubicacion_escaneo = tk.StringVar(value="Ubicación: —")
+        self.var_linea_tiempo_escaneo = tk.StringVar(value="Tiempo: 0.0 s")
+        self.var_linea_conteos_escaneo = tk.StringVar(value="Esperados: 0 | Leídos únicos: 0")
 
-        tk.Label(top, textvariable=self.scan_line_location, font=("", 9), anchor="w").pack(fill="x")
-        tk.Label(top, textvariable=self.scan_line_time, font=("", 9), anchor="w").pack(fill="x")
-        tk.Label(top, textvariable=self.scan_line_counts, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(top, textvariable=self.var_linea_ubicacion_escaneo, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(top, textvariable=self.var_linea_conteos_escaneo, font=("", 9), anchor="w").pack(fill="x")
 
-        mid = tk.Frame(self._frame_scan)
-        mid.pack(fill="both", expand=True, padx=8, pady=3)
-
-        tk.Label(mid, text="Activos (esperados en esta ubicación)", font=("", 9), fg="#444").pack(anchor="w")
+        mid = tk.Frame(self._marco_escaneo)
+        mid.pack(fill="both", expand=True, padx=8, pady=2)
 
         tree_wrap = tk.Frame(mid)
-        tree_wrap.pack(fill="both", expand=True, pady=(2, 4))
+        tree_wrap.pack(fill="both", expand=True, pady=(2, 2))
 
-        self.scan_tree = ttk.Treeview(
+        self.arbol_escaneo = ttk.Treeview(
             tree_wrap,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=4,
+            height=9,
         )
-        self.scan_tree.heading("status", text="Estado")
-        self.scan_tree.heading("epc", text="Activo")
-        self.scan_tree.heading("rssi", text="RSSI")
-        self.scan_tree.column("status", width=88, anchor="center")
-        self.scan_tree.column("epc", width=250, anchor="w")
-        self.scan_tree.column("rssi", width=48, anchor="center")
-        vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.scan_tree.yview)
-        self.scan_tree.configure(yscrollcommand=vsb_s.set)
-        self.scan_tree.pack(side="left", fill="both", expand=True)
+        self.arbol_escaneo.heading("status", text="Estado")
+        self.arbol_escaneo.heading("epc", text="Activo")
+        self.arbol_escaneo.heading("rssi", text="RSSI")
+        self.arbol_escaneo.column("status", width=88, anchor="center")
+        self.arbol_escaneo.column("epc", width=250, anchor="w")
+        self.arbol_escaneo.column("rssi", width=48, anchor="center")
+        vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.arbol_escaneo.yview)
+        self.arbol_escaneo.configure(yscrollcommand=vsb_s.set)
+        self.arbol_escaneo.pack(side="left", fill="both", expand=True)
         vsb_s.pack(side="right", fill="y")
+        # Estilos para los tags
+        self.arbol_escaneo.tag_configure("encontrado", background="#F4F4F4")
+        self.arbol_escaneo.tag_configure("faltante", background="#FF7F7F")
+        self.arbol_escaneo.tag_configure("nuevo", background="#90EE90")
 
-        self.scan_tree.tag_configure("found", background="#F4F4F4")
-        self.scan_tree.tag_configure("missing", background="#FF7F7F")
-        self.scan_tree.tag_configure("new", background="#90EE90")
+        # Log interno (no visible): lo mantenemos para debug sin ocupar espacio en 480×320
+        self.lista_log_escaneo = tk.Listbox(self._marco_escaneo, height=self._MAX_LINEAS_LOG_ESCANEO, font=("Consolas", 8))
 
-        tk.Label(
-            self._frame_scan,
-            text="Últimas lecturas (log)",
-            font=("", 8),
-            fg="#444",
-        ).pack(anchor="w", padx=10, pady=(0, 0))
-
-        self.listbox = tk.Listbox(self._frame_scan, height=self._LOG_MAX_LINES, font=("Consolas", 8))
-        self.listbox.pack(fill="x", padx=10, pady=3)
-
-        row_pistol = tk.Frame(self._frame_scan)
-        row_pistol.pack(fill="x", side="bottom", pady=(3, 3))
-
-        self.btn_begin_pistol = tk.Button(
+        row_pistol = tk.Frame(self._marco_escaneo)
+        row_pistol.pack(fill="x", side="bottom", pady=(2, 2))
+        # Botones para el pistoleo 
+        self.btn_iniciar_pistoleo = tk.Button(
             row_pistol,
             text="Presionar Trigger",
-            font=("", 11, "bold"),
+            font=("", 9, "bold"),
             bg="#2E7D32",
             fg="white",
             activebackground="#1B5E20",
             activeforeground="white",
             relief="flat",
-            command=self.begin_pistol_scan,
+            command=self.iniciar_pistoleo,
         )
-        self.btn_begin_pistol.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=7)
+        self.btn_iniciar_pistoleo.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=2)
 
-        self.btn_stop = tk.Button(
+        self.btn_detener_escaneo = tk.Button(
             row_pistol,
             text="Detener",
-            font=("", 11, "bold"),
+            font=("", 9, "bold"),
             bg="#C62828",
             fg="white",
             activebackground="#B71C1C",
             activeforeground="white",
             relief="flat",
-            command=self.stop_scan,
+            command=self.detener_escaneo,
         )
-        self.btn_stop.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=7)
+        self.btn_detener_escaneo.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=2)
 
-        row = tk.Frame(self._frame_scan)
-        row.pack(fill="x", side="bottom", pady=(0, 6))
+        row = tk.Frame(self._marco_escaneo)
+        row.pack(fill="x", side="bottom", pady=(0, 4))
 
-        self.btn_pause = ttk.Button(
+        self.btn_pausar_escaneo = ttk.Button(
             row,
             text="Pausar",
             style="Handheld.TButton",
-            command=self._toggle_pause,
+            command=self._alternar_pausa_escaneo,
         )
-        self.btn_pause.pack(side="left", padx=(10, 4), ipadx=4, ipady=4)
+        self.btn_pausar_escaneo.pack(side="left", padx=(10, 4), ipadx=4, ipady=2)
 
-        self.btn_cancel_scan = ttk.Button(
+        self.btn_cancelar_escaneo = ttk.Button(
             row,
             text="Cancelar",
             style="Handheld.TButton",
-            command=self.cancel_scan,
+            command=self.cancelar_escaneo,
         )
-        self.btn_cancel_scan.pack(side="left", padx=4, ipadx=4, ipady=4)
+        self.btn_cancelar_escaneo.pack(side="left", padx=4, ipadx=4, ipady=2)
 
-        self._set_scan_controls_reading(False)
+        self._ajustar_controles_escaneo_activo(False)
+                
+    def _construir_resultados(self):
+        self._marco_resultados = tk.Frame(self.contenedor)
 
-    def _build_result(self):
-        self._frame_result = tk.Frame(self.container)
-
-        head = tk.Frame(self._frame_result)
+        head = tk.Frame(self._marco_resultados)
         head.pack(fill="x", padx=10, pady=(8, 4))
 
-        self.result_line_location = tk.StringVar(value="Ubicación: ")
-        self.result_line_stats = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
+        self.var_linea_ubicacion_resultados = tk.StringVar(value="Ubicación: ")
+        self.var_linea_estadisticas_resultados = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
 
-        tk.Label(head, textvariable=self.result_line_location, font=("", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(head, textvariable=self.result_line_stats, font=("", 10), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.var_linea_ubicacion_resultados, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.var_linea_estadisticas_resultados, font=("", 10), anchor="w").pack(fill="x")
 
-        filt = tk.Frame(self._frame_result)
+        filt = tk.Frame(self._marco_resultados)
         filt.pack(fill="x", padx=8, pady=(2, 4))
 
         tk.Label(filt, text="Ver:", font=("", 9)).pack(side="left", padx=(0, 6))
@@ -615,43 +629,43 @@ class HandheldApp(tk.Tk):
                 filt,
                 text=label,
                 value=val,
-                variable=self._filter_mode,
-                command=self._on_filter_change,
+                variable=self._modo_filtro_resultados,
+                command=self._al_cambiar_filtro_resultados,
             ).pack(side="left", padx=2)
 
-        tree_frame = tk.Frame(self._frame_result)
+        tree_frame = tk.Frame(self._marco_resultados)
         tree_frame.pack(fill="both", expand=True, padx=8, pady=4)
             
-        self.tree = ttk.Treeview(
+        self.arbol_resultados = ttk.Treeview(
             tree_frame,
             columns=("status", "epc", "rssi"),
             show="headings",
             height=7,
         )
-        self.tree.heading("status", text="Estado")
-        self.tree.heading("epc", text="Activo")
-        self.tree.heading("rssi", text="RSSI")
-        self.tree.column("status", width=96, anchor="center")
-        self.tree.column("epc", width=270, anchor="w")
-        self.tree.column("rssi", width=52, anchor="center")
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.arbol_resultados.heading("status", text="Estado")
+        self.arbol_resultados.heading("epc", text="Activo")
+        self.arbol_resultados.heading("rssi", text="RSSI")
+        self.arbol_resultados.column("status", width=96, anchor="center")
+        self.arbol_resultados.column("epc", width=270, anchor="w")
+        self.arbol_resultados.column("rssi", width=52, anchor="center")
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.arbol_resultados.yview)
+        self.arbol_resultados.configure(yscrollcommand=vsb.set)
+        self.arbol_resultados.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
         
-        self.tree.tag_configure("found", background="#F4F4F4")
-        self.tree.tag_configure("missing", background="#FF7F7F")
-        self.tree.tag_configure("new", background="#90EE90")
+        self.arbol_resultados.tag_configure("encontrado", background="#F4F4F4")
+        self.arbol_resultados.tag_configure("faltante", background="#FF7F7F")
+        self.arbol_resultados.tag_configure("nuevo", background="#90EE90")
 
-        self.tree.bind("<Double-1>", self._on_result_double_click)
+        self.arbol_resultados.bind("<Double-1>", self._al_doble_clic_resultado)
 
-        legend = tk.Frame(self._frame_result)
+        legend = tk.Frame(self._marco_resultados)
         legend.pack(fill="x", padx=8)
-        self._legend_chip(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "NO ESCANEADO", "#FF7F7F").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "ACTIVO NUEVO", "#90EE90").pack(side="left")
+        self._chip_leyenda(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
+        self._chip_leyenda(legend, "NO ESCANEADO", "#FF7F7F").pack(side="left", padx=(0, 4))
+        self._chip_leyenda(legend, "ACTIVO NUEVO", "#90EE90").pack(side="left")
 
-        row = tk.Frame(self._frame_result)
+        row = tk.Frame(self._marco_resultados)
         row.pack(fill="x", pady=(6, 10))
 
         btns = tk.Frame(row)
@@ -661,406 +675,396 @@ class HandheldApp(tk.Tk):
             btns,
             text="Nuevo escaneo",
             style="HandheldBig.TButton",
-            command=self._result_new_scan,
+            command=self._nuevo_escaneo_desde_resultados,
         ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
 
         ttk.Button(
             btns,
-            text="Actualizar tipoUbicacion",
+            text="Subir reporte",
             style="HandheldBig.TButton",
-            command=self._export_tipo_ubicacion_updated,
+            command=self._exportar_tipo_ubicacion_actualizado,
         ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
 
         ttk.Button(
             btns,
             text="Menú",
             style="HandheldBig.TButton",
-            command=self._go_menu_from_result,
+            command=self._volver_menu_desde_resultados,
         ).pack(side="right", fill="x", expand=True, ipadx=8, ipady=4, padx=(6, 0))
 
-    def _build_detail(self):
-        self._frame_detail = tk.Frame(self.container)
+    def _construir_detalle(self):
+        self._marco_detalle = tk.Frame(self.contenedor)
 
-        tk.Label(self._frame_detail, text="Detalle de activo", font=("", 12, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
+        tk.Label(self._marco_detalle, text="Detalle de activo", font=("", 12, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
 
-        box = tk.Frame(self._frame_detail)
+        box = tk.Frame(self._marco_detalle)
         box.pack(fill="both", expand=True, padx=12)
 
-        self.detail_epc_var = tk.StringVar(value="")
-        self.detail_status_var = tk.StringVar(value="")
-        self.detail_loc_var = tk.StringVar(value="")
-        self.detail_rssi_var = tk.StringVar(value="")
+        self.var_detalle_epc = tk.StringVar(value="")
+        self.var_detalle_estado = tk.StringVar(value="")
+        self.var_detalle_ubicacion = tk.StringVar(value="")
+        self.var_detalle_rssi = tk.StringVar(value="")
 
-        def line(lbl, var):
+        def fila_detalle(lbl, var):
             r = tk.Frame(box)
             r.pack(fill="x", pady=4)
             tk.Label(r, text=lbl, font=("", 9), width=18, anchor="w").pack(side="left")
             tk.Label(r, textvariable=var, font=("", 9), wraplength=320, justify="left", anchor="w").pack(side="left")
 
-        self.detail_code_var = tk.StringVar(value="")
-        line("Activo:", self.detail_code_var)
-        line("EPC:", self.detail_epc_var)
-        line("Estado:", self.detail_status_var)
-        line("Ubicación esperada:", self.detail_loc_var)
-        line("Última RSSI:", self.detail_rssi_var)
+        self.var_detalle_codigo_activo = tk.StringVar(value="")
+        fila_detalle("Activo:", self.var_detalle_codigo_activo)
+        fila_detalle("EPC:", self.var_detalle_epc)
+        fila_detalle("Estado:", self.var_detalle_estado)
+        fila_detalle("Ubicación esperada:", self.var_detalle_ubicacion)
+        fila_detalle("Última RSSI:", self.var_detalle_rssi)
 
         ttk.Button(
-            self._frame_detail,
+            self._marco_detalle,
             text="Volver",
             style="HandheldBig.TButton",
-            command=lambda: self._show_frame("result"),
+            command=lambda: self._mostrar_marco("resultados"),
         ).pack(side="bottom", pady=16, ipadx=16, ipady=6)
 
         ttk.Button(
-            self._frame_detail,
+            self._marco_detalle,
             text="Menú",
             style="Handheld.TButton",
-            command=self._go_menu_from_result,
+            command=self._volver_menu_desde_resultados,
         ).pack(side="bottom", pady=(0, 10), ipadx=10, ipady=2)
 
-    def _go_menu_from_result(self):
+    def _volver_menu_desde_resultados(self):
         """Salir del flujo de inventario a menú principal."""
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._show_frame("menu")
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("menu")
 
-    def _build_rastreo(self):
-        self._frame_rastreo = tk.Frame(self.container)
+    def _construir_rastreo(self):
+        self._marco_rastreo = tk.Frame(self.contenedor)
         ttk.Button(
-            self._frame_rastreo,
+            self._marco_rastreo,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("menu"),
+            command=lambda: self._mostrar_marco("menu"),
         ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
-            self._frame_rastreo,
+            self._marco_rastreo,
             text="Rastrear activo",
-            font=("", 14, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 8))
+            font=("", 13, "bold"),
+        ).pack(anchor="w", padx=12, pady=(0, 4))
 
         tk.Label(
-            self._frame_rastreo,
+            self._marco_rastreo,
             text="Busca por código de activo.",
             font=("", 8),
             wraplength=440,
             justify="left",
             fg="#444",
-        ).pack(anchor="w", padx=12, pady=(0, 6))
+        ).pack(anchor="w", padx=12, pady=(0, 4))
 
-        row = tk.Frame(self._frame_rastreo)
-        row.pack(fill="x", padx=12, pady=4)
+        row = tk.Frame(self._marco_rastreo)
+        row.pack(fill="x", padx=12, pady=3)
 
-        self.rastreo_in_var = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.rastreo_in_var, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ttk.Button(row, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).pack(side="left")
+        self.var_rastreo_busqueda = tk.StringVar(value="")
+        tk.Entry(row, textvariable=self.var_rastreo_busqueda, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(row, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).pack(side="left", padx=(0, 4))
+        ttk.Button(row, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).pack(side="left")
 
-        row2 = tk.Frame(self._frame_rastreo)
-        row2.pack(fill="x", padx=12, pady=(0, 6))
-        ttk.Button(row2, text="Limpiar", style="Handheld.TButton", command=lambda: self.rastreo_in_var.set("")).pack(
-            side="right"
-        )
+        box = tk.Frame(self._marco_rastreo)
+        box.pack(fill="both", expand=True, padx=12, pady=(4, 4))
 
-        box = tk.Frame(self._frame_rastreo)
-        box.pack(fill="both", expand=True, padx=12, pady=(6, 6))
+        self.var_rastreo_activo = tk.StringVar(value="Activo: —")
+        self.var_rastreo_epc = tk.StringVar(value="EPC: —")
+        self.var_rastreo_ubicacion = tk.StringVar(value="Ubicación esperada: —")
 
-        self.rastreo_code_var = tk.StringVar(value="Activo: —")
-        self.rastreo_epc_var = tk.StringVar(value="EPC: —")
-        self.rastreo_loc_var = tk.StringVar(value="Ubicación esperada: —")
-
-        tk.Label(box, textvariable=self.rastreo_code_var, font=("", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(box, textvariable=self.rastreo_epc_var, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(2, 6))
-        tk.Label(box, textvariable=self.rastreo_loc_var, font=("", 9), wraplength=440, justify="left", anchor="w").pack(
+        tk.Label(box, textvariable=self.var_rastreo_activo, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(box, textvariable=self.var_rastreo_epc, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(1, 4))
+        tk.Label(box, textvariable=self.var_rastreo_ubicacion, font=("", 9), wraplength=440, justify="left", anchor="w").pack(
             fill="x"
         )
 
         # Proximidad (frío/caliente)
-        prox = tk.Frame(self._frame_rastreo)
-        prox.pack(fill="x", padx=12, pady=(0, 8))
+        prox = tk.Frame(self._marco_rastreo)
+        prox.pack(fill="x", padx=12, pady=(0, 4))
 
-        self.prox_state_var = tk.StringVar(value="Proximidad: —")
-        self.prox_rssi_var = tk.StringVar(value="RSSI: —")
-        tk.Label(prox, textvariable=self.prox_state_var, font=("", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(prox, textvariable=self.prox_rssi_var, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(1, 4))
+        self.var_proximidad_estado = tk.StringVar(value="Proximidad: —")
+        self.var_proximidad_rssi = tk.StringVar(value="RSSI: —")
+        tk.Label(prox, textvariable=self.var_proximidad_estado, font=("", 10, "bold"), anchor="w").pack(fill="x")
+        tk.Label(prox, textvariable=self.var_proximidad_rssi, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(1, 4))
 
-        self.prox_bar = ttk.Progressbar(prox, orient="horizontal", mode="determinate", maximum=100)
-        self.prox_bar.pack(fill="x")
+        self.barra_proximidad = ttk.Progressbar(prox, orient="horizontal", mode="determinate", maximum=100)
+        self.barra_proximidad.pack(fill="x")
 
-        row3 = tk.Frame(self._frame_rastreo)
-        row3.pack(fill="x", padx=12, pady=(4, 10))
-        self.btn_prox_start = ttk.Button(row3, text="Iniciar rastreo", style="HandheldBig.TButton", command=self._prox_start)
-        self.btn_prox_start.pack(side="left", fill="x", expand=True, padx=(0, 6), ipady=2)
-        self.btn_prox_stop = ttk.Button(row3, text="Detener", style="HandheldBig.TButton", command=self._prox_stop, state="disabled")
-        self.btn_prox_stop.pack(side="right", fill="x", expand=True, padx=(6, 0), ipady=2)
+        row3 = tk.Frame(self._marco_rastreo)
+        row3.pack(fill="x", padx=12, pady=(3, 6))
+        self.btn_proximidad_iniciar = ttk.Button(row3, text="Iniciar rastreo", style="HandheldBig.TButton", command=self._proximidad_iniciar)
+        self.btn_proximidad_iniciar.pack(side="left", fill="x", expand=True, padx=(0, 6), ipady=2)
+        self.btn_proximidad_detener = ttk.Button(row3, text="Detener", style="HandheldBig.TButton", command=self._proximidad_detener, state="disabled")
+        self.btn_proximidad_detener.pack(side="right", fill="x", expand=True, padx=(6, 0), ipady=2)
 
-    def _enter_rastreo(self):
+    def _entrar_rastreo(self):
         # Evita que el scanner quede leyendo en background.
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._show_frame("rastreo")
-        self._prox_stop()
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("rastreo")
+        self._proximidad_detener()
 
-    def _rastreo_normalize_input(self, s: str) -> tuple[str, str]:
-        return self._tracking.normalize_input(s)
+    def _rastreo_normalizar_entrada(self, texto: str) -> tuple[str, str]:
+        return self._servicio_rastreo.normalizar_entrada(texto)
 
     def _rastreo_buscar(self):
-        res = self._tracking.track(self.rastreo_in_var.get())
-        if not res:
+        resultado_rastreo = self._servicio_rastreo.rastrear(self.var_rastreo_busqueda.get())
+        if not resultado_rastreo:
             messagebox.showinfo("Rastreo", "Escribe un EPC (hex) o un código de activo.")
             return
-        self.rastreo_code_var.set("Activo: {0}".format(res.asset_code or "(desconocido)"))
-        self.rastreo_epc_var.set("EPC: {0}".format(res.epc_hex))
-        if not res.locations:
-            self.rastreo_loc_var.set("Ubicación esperada: (no encontrado en catálogo)")
-        elif len(res.locations) == 1:
-            self.rastreo_loc_var.set("Ubicación esperada: {0}".format(res.locations[0]))
+        self.var_rastreo_activo.set("Activo: {0}".format(resultado_rastreo.codigo_activo or "(desconocido)"))
+        self.var_rastreo_epc.set("EPC: {0}".format(resultado_rastreo.epc_en_hex))
+        if not resultado_rastreo.ubicaciones:
+            self.var_rastreo_ubicacion.set("Ubicación esperada: (no encontrado en catálogo)")
+        elif len(resultado_rastreo.ubicaciones) == 1:
+            self.var_rastreo_ubicacion.set("Ubicación esperada: {0}".format(resultado_rastreo.ubicaciones[0]))
         else:
-            locs = res.locations
-            self.rastreo_loc_var.set("Ubicación esperada: " + " | ".join(locs[:4]) + (" ..." if len(locs) > 4 else ""))
+            ubicaciones_lista = resultado_rastreo.ubicaciones
+            self.var_rastreo_ubicacion.set("Ubicación esperada: " + " | ".join(ubicaciones_lista[:4]) + (" ..." if len(ubicaciones_lista) > 4 else ""))
         # Reset de proximidad con el EPC objetivo
-        self._prox.reset(res.epc_hex)
-        self.prox_bar["value"] = 0
-        self.prox_state_var.set("Proximidad: listo")
-        self.prox_rssi_var.set("RSSI: —")
+        self._rastreador_proximidad.reiniciar(resultado_rastreo.epc_en_hex)
+        self.barra_proximidad["value"] = 0
+        self.var_proximidad_estado.set("Proximidad: listo")
+        self.var_proximidad_rssi.set("RSSI: —")
 
-    def _prox_set_controls(self, running: bool):
-        self._prox_running = bool(running)
-        self.btn_prox_start.config(state=("disabled" if running else "normal"))
-        self.btn_prox_stop.config(state=("normal" if running else "disabled"))
+    def _proximidad_ajustar_controles(self, activa: bool):
+        self._proximidad_activa = bool(activa)
+        self.btn_proximidad_iniciar.config(state=("disabled" if activa else "normal"))
+        self.btn_proximidad_detener.config(state=("normal" if activa else "disabled"))
 
-    def _prox_start(self):
+    def _proximidad_iniciar(self):
         # Debe haber EPC objetivo
-        st = self._prox.state
-        if st is None or not st.target_epc:
+        st = self._rastreador_proximidad.estado
+        if st is None or not st.epc_objetivo:
             # intenta buscar con lo que haya en input
             self._rastreo_buscar()
-            st = self._prox.state
-            if st is None or not st.target_epc:
+            st = self._rastreador_proximidad.estado
+            if st is None or not st.epc_objetivo:
                 return
 
-        self._prox_stop()
-        self._prox_set_controls(True)
+        self._proximidad_detener()
+        self._proximidad_ajustar_controles(True)
 
-        target = st.target_epc
+        objetivo = st.epc_objetivo
         seen = {"any": False}
 
         # Modo simulación (demostrativo): RSSI inventado que varía.
-        if self._prox_force_sim or (not self._driver.connected):
-            self.prox_state_var.set("Proximidad: simulación (demo)")
-            self._prox_sim_start()
-            self._prox_ui_start()
+        if self._forzar_sim_proximidad or (not self._lector.connected):
+            self.var_proximidad_estado.set("Proximidad: simulación (demo)")
+            self._proximidad_iniciar_simulacion()
+            self._proximidad_iniciar_actualizacion_ui()
             return
 
-        def on_tag(tag, _idx):
+        def al_tag(tag, _idx):
             epc = (tag.epc_hex or "").lower()
-            if epc != target:
+            if epc != objetivo:
                 return
             seen["any"] = True
-            now_ms = int(self.tk.call("clock", "milliseconds"))
-            self._prox.update(tag.rssi, now_ms)
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            self._rastreador_proximidad.actualizar(tag.rssi, instante_ms)
 
-        def on_err(e):
-            self._on_scan_error(e)
-            self._prox_stop()
+        def al_error(e):
+            self._al_error_escaneo(e)
+            self._proximidad_detener()
 
-        self._scanner.reset()
-        self._scanner.start(on_tag_read=on_tag, on_error=on_err)
-        self._prox_ui_start()
+        self._escaner.reiniciar()
+        self._escaner.iniciar(al_leer_etiqueta=al_tag, al_error=al_error)
+        self._proximidad_iniciar_actualizacion_ui()
 
-    def _prox_stop(self):
-        self._prox_set_controls(False)
+    def _proximidad_detener(self):
+        self._proximidad_ajustar_controles(False)
         # Detiene loop UI
-        if self._prox_ui_job is not None:
+        if self._tarea_ui_proximidad is not None:
             try:
-                self.after_cancel(self._prox_ui_job)
+                self.after_cancel(self._tarea_ui_proximidad)
             except Exception:
                 pass
-        self._prox_ui_job = None
-        if getattr(self, "_prox_sim_job", None) is not None:
+        self._tarea_ui_proximidad = None
+        if getattr(self, "_tarea_sim_proximidad", None) is not None:
             try:
-                self.after_cancel(self._prox_sim_job)
+                self.after_cancel(self._tarea_sim_proximidad)
             except Exception:
                 pass
-        self._prox_sim_job = None
-        # No detener el scanner global si estamos en otra pantalla, pero aquí sí:
+        self._tarea_sim_proximidad = None
+        # Aquí sí detenemos el escáner; en otras pantallas no forzamos stop desde este módulo.
         try:
-            self._scanner.stop()
+            self._escaner.detener()
         except Exception:
             pass
 
-    def _prox_ui_start(self):
+    def _proximidad_iniciar_actualizacion_ui(self):
         # Actualiza barra/labels cada 200ms y marca "sin señal" si no se ve recientemente
-        def tick():
-            if not self._prox_running:
+        def actualizar_proximidad_ui():
+            if not self._proximidad_activa:
                 return
-            st = self._prox.state
-            now_ms = int(self.tk.call("clock", "milliseconds"))
-            lvl = self._prox.level_0_100()
-            self.prox_bar["value"] = lvl
-            if st and st.ema_rssi is not None:
-                self.prox_state_var.set(f"Proximidad: {self._prox.label()}  ({lvl}%)")
-                self.prox_rssi_var.set(f"RSSI: {st.ema_rssi:.1f} dBm (último {st.last_rssi} dBm)")
-                if st.last_seen_ms is not None and now_ms - st.last_seen_ms > 1200:
-                    self.prox_state_var.set("Proximidad: Sin señal (no se ve el tag)")
+            estado_prox = self._rastreador_proximidad.estado
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            nivel = self._rastreador_proximidad.nivel_porcentaje()
+            self.barra_proximidad["value"] = nivel
+            if estado_prox and estado_prox.rssi_suavizado is not None:
+                self.var_proximidad_estado.set(f"Proximidad: {self._rastreador_proximidad.texto_nivel()}  ({nivel}%)")
+                self.var_proximidad_rssi.set(f"RSSI: {estado_prox.rssi_suavizado:.1f} dBm (último {estado_prox.ultimo_rssi} dBm)")
+                if estado_prox.ultima_lectura_ms is not None and instante_ms - estado_prox.ultima_lectura_ms > 1200:
+                    self.var_proximidad_estado.set("Proximidad: Sin señal (no se ve el tag)")
             else:
-                self.prox_state_var.set("Proximidad: Sin señal")
-                self.prox_rssi_var.set("RSSI: —")
-            self._prox_ui_job = self.after(200, tick)
+                self.var_proximidad_estado.set("Proximidad: Sin señal")
+                self.var_proximidad_rssi.set("RSSI: —")
+            self._tarea_ui_proximidad = self.after(200, actualizar_proximidad_ui)
 
-        self._prox_ui_job = self.after(100, tick)
+        self._tarea_ui_proximidad = self.after(100, actualizar_proximidad_ui)
 
-    def _prox_sim_start(self):
+    def _proximidad_iniciar_simulacion(self):
         # Simulación simple: random walk entre -90 y -35 dBm
         cur = {"r": -75}
 
-        def step():
-            if not self._prox_running:
+        def paso_simulacion():
+            if not self._proximidad_activa:
                 return
             cur["r"] += random.randint(-3, 3)
             if cur["r"] < -90:
                 cur["r"] = -90
             if cur["r"] > -35:
                 cur["r"] = -35
-            now_ms = int(self.tk.call("clock", "milliseconds"))
-            self._prox.update(cur["r"], now_ms)
-            self._prox_sim_job = self.after(250, step)
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            self._rastreador_proximidad.actualizar(cur["r"], instante_ms)
+            self._tarea_sim_proximidad = self.after(250, paso_simulacion)
 
-        self._prox_sim_job = self.after(250, step)
+        self._tarea_sim_proximidad = self.after(250, paso_simulacion)
 
-    def _build_escritura(self):
-        self._frame_escritura = tk.Frame(self.container)
+    def _construir_escritura(self):
+        self._marco_escritura = tk.Frame(self.contenedor)
         ttk.Button(
-            self._frame_escritura,
+            self._marco_escritura,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("menu"),
-        ).pack(anchor="w", padx=8, pady=6)
+            command=lambda: self._mostrar_marco("menu"),
+        ).pack(anchor="w", padx=8, pady=4)
         tk.Label(
-            self._frame_escritura,
+            self._marco_escritura,
             text="Escribir tag",
             font=("", 14, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 8))
+        ).pack(anchor="w", padx=12, pady=(0, 4))
 
-        tk.Label(
-            self._frame_escritura,
-            text="Flujo: escanea 1 etiqueta → escribe el código del activo → (futuro) programar EPC.",
-            font=("", 8),
-            wraplength=440,
-            justify="left",
-            fg="#444",
-        ).pack(anchor="w", padx=12, pady=(0, 6))
+        box = tk.Frame(self._marco_escritura)
+        box.pack(fill="both", expand=True, padx=12, pady=(2, 4))
 
-        box = tk.Frame(self._frame_escritura)
-        box.pack(fill="both", expand=True, padx=12, pady=(4, 6))
+        self.var_escritura_epc_actual = tk.StringVar(value="EPC actual: —")
+        self.var_escritura_codigo_actual = tk.StringVar(value="Código actual (si aplica): —")
+        self.var_escritura_epc_nuevo = tk.StringVar(value="EPC nuevo: —")
+        self.var_escritura_estado = tk.StringVar(value="")
 
-        self.write_current_epc_var = tk.StringVar(value="EPC actual: —")
-        self.write_current_code_var = tk.StringVar(value="Código actual (si aplica): —")
-        self.write_new_epc_var = tk.StringVar(value="EPC nuevo: —")
-        self.write_status_var = tk.StringVar(value="")
-
-        tk.Label(box, textvariable=self.write_current_epc_var, font=("", 9), anchor="w").pack(fill="x")
-        tk.Label(box, textvariable=self.write_current_code_var, font=("", 8), fg="#444", anchor="w").pack(
-            fill="x", pady=(1, 8)
+        tk.Label(box, textvariable=self.var_escritura_epc_actual, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(box, textvariable=self.var_escritura_codigo_actual, font=("", 8), fg="#444", anchor="w").pack(
+            fill="x", pady=(1, 5)
         )
 
         row = tk.Frame(box)
         row.pack(fill="x", pady=2)
         tk.Label(row, text="Código activo:", font=("", 10)).pack(side="left")
-        self.write_code_in_var = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.write_code_in_var, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(6, 0))
-        self.write_code_in_var.trace_add("write", lambda *_: self._write_calc_new_epc(silent=True))
+        self.var_escritura_codigo_entrada = tk.StringVar(value="")
+        tk.Entry(row, textvariable=self.var_escritura_codigo_entrada, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
 
-        tk.Label(box, textvariable=self.write_new_epc_var, font=("", 9), anchor="w").pack(fill="x", pady=(8, 2))
-        tk.Label(box, textvariable=self.write_status_var, font=("", 8), fg="#444", wraplength=440, justify="left").pack(
+        tk.Label(box, textvariable=self.var_escritura_epc_nuevo, font=("", 9), anchor="w").pack(fill="x", pady=(8, 2))
+        tk.Label(box, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", wraplength=440, justify="left").pack(
             fill="x", pady=(2, 0)
         )
 
-        row2 = tk.Frame(self._frame_escritura)
-        row2.pack(fill="x", padx=12, pady=(0, 10))
-        ttk.Button(row2, text="Escanear etiqueta", style="HandheldBig.TButton", command=self._write_scan_once).pack(
+        row2 = tk.Frame(self._marco_escritura)
+        row2.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Button(row2, text="Escanear", style="HandheldBig.TButton", command=self._escritura_escanear_una_vez).pack(
             side="left", fill="x", expand=True, ipady=2
         )
 
-        row3 = tk.Frame(self._frame_escritura)
-        row3.pack(fill="x", padx=12, pady=(0, 10))
-        ttk.Button(row3, text="Escribir (simulado)", style="HandheldBig.TButton", command=self._write_execute).pack(
+        row3 = tk.Frame(self._marco_escritura)
+        row3.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Button(row3, text="Escribir", style="HandheldBig.TButton", command=self._escritura_ejecutar_programacion).pack(
             side="left", fill="x", expand=True, ipady=2
         )
 
         # Estado interno
-        self._write_current_epc = ""
-        self._write_new_epc = ""
-        # (la simulación/hardware la gestiona TagWriterService)
+        self._epc_memoria_escritura_actual = ""
+        self._epc_memoria_escritura_nuevo = ""
+        # (la simulación/hardware la gestiona ServicioEscrituraEtiquetas)
 
-    def _write_scan_once(self):
+    def _escritura_escanear_una_vez(self):
         try:
-            r = self._tag_writer.scan_one_tag(self._driver)
+            lectura = self._servicio_escritura.escanear_una_etiqueta(self._lector)
         except Exception as e:
             messagebox.showerror("Escritura", str(e))
             return
 
-        self._write_current_epc = r.epc_hex
-        suf = " (simulado)" if r.simulated else ""
-        self.write_current_epc_var.set(f"EPC actual: {r.epc_hex}{suf}")
-        self.write_current_code_var.set(f"Código actual (si aplica): {r.decoded_code or '—'}")
-        self.write_status_var.set("Etiqueta leída. Escribe el código del activo para generar el EPC nuevo.")
-        self._write_calc_new_epc(silent=True)
+        self._epc_memoria_escritura_actual = lectura.epc_en_hex
+        suf = " (simulado)" if lectura.simulado else ""
+        self.var_escritura_epc_actual.set(f"EPC actual: {lectura.epc_en_hex}{suf}")
+        self.var_escritura_codigo_actual.set(f"Código actual (si aplica): {lectura.codigo_decodificado or '—'}")
+        self.var_escritura_estado.set("Etiqueta leída. Escribe el código del activo para generar el EPC nuevo.")
+        self._escritura_calcular_nuevo_epc(silent=True)
 
-    def _write_calc_new_epc(self, silent: bool = False):
-        code = (self.write_code_in_var.get() or "").strip()
-        if not code:
-            self._write_new_epc = ""
-            self.write_new_epc_var.set("EPC nuevo: —")
+    def _escritura_calcular_nuevo_epc(self, silent: bool = False):
+        codigo = (self.var_escritura_codigo_entrada.get() or "").strip()
+        if not codigo:
+            self._epc_memoria_escritura_nuevo = ""
+            self.var_escritura_epc_nuevo.set("EPC nuevo: —")
             return
-        epc = self._tag_writer.compute_new_epc(code)
+        epc = self._servicio_escritura.calcular_epc_desde_codigo(codigo)
         if not epc:
-            self._write_new_epc = ""
-            self.write_new_epc_var.set("EPC nuevo: —")
+            self._epc_memoria_escritura_nuevo = ""
+            self.var_escritura_epc_nuevo.set("EPC nuevo: —")
             return
-        self._write_new_epc = epc
-        self.write_new_epc_var.set(f"EPC nuevo: {epc}  (desde {code})")
+        self._epc_memoria_escritura_nuevo = epc
+        self.var_escritura_epc_nuevo.set(f"EPC nuevo: {epc}  (desde {codigo})")
         if not silent:
-            self.write_status_var.set("Listo para escribir (simulado).")
+            self.var_escritura_estado.set("Listo para escribir (simulado).")
 
-    def _write_execute(self):
-        if not self._write_new_epc:
-            self._write_calc_new_epc(silent=True)
+    def _escritura_ejecutar_programacion(self):
+        if not self._epc_memoria_escritura_nuevo:
+            self._escritura_calcular_nuevo_epc(silent=True)
         try:
-            wr = self._tag_writer.write_epc(self._driver, self._write_current_epc, self._write_new_epc)
+            resultado_escritura = self._servicio_escritura.programar_epc(
+                self._lector, self._epc_memoria_escritura_actual, self._epc_memoria_escritura_nuevo
+            )
         except Exception as e:
             messagebox.showerror("Escritura", str(e))
             return
 
-        old = self._write_current_epc
-        self._write_current_epc = wr.new_epc_hex
-        code = (self.write_code_in_var.get() or "").strip()
-        suf = " (simulado)" if wr.simulated else ""
-        self.write_current_epc_var.set(f"EPC actual: {self._write_current_epc}{suf}")
-        self.write_current_code_var.set(f"Código actual (si aplica): {code or '—'}")
-        self.write_status_var.set(write_status_programmed(old, self._write_current_epc))
-        messagebox.showinfo("Escritura", "Etiqueta programada." if not wr.simulated else "Simulación: etiqueta programada.")
+        epc_anterior = self._epc_memoria_escritura_actual
+        self._epc_memoria_escritura_actual = resultado_escritura.epc_nuevo_en_hex
+        codigo = (self.var_escritura_codigo_entrada.get() or "").strip()
+        suf = " (simulado)" if resultado_escritura.simulado else ""
+        self.var_escritura_epc_actual.set(f"EPC actual: {self._epc_memoria_escritura_actual}{suf}")
+        self.var_escritura_codigo_actual.set(f"Código actual (si aplica): {codigo or '—'}")
+        self.var_escritura_estado.set(
+            estado_escritura_programada(epc_anterior, self._epc_memoria_escritura_actual)
+        )
+        messagebox.showinfo("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
 
-    def _build_hid(self):
+    def _construir_hid(self):
         """Modo pistola como teclado Bluetooth: sin inventario en esta pantalla (flujograma: uso con laptop + web)."""
-        self._frame_hid = tk.Frame(self.container)
+        self._marco_hid = tk.Frame(self.contenedor)
         ttk.Button(
-            self._frame_hid,
+            self._marco_hid,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("menu"),
+            command=lambda: self._mostrar_marco("menu"),
         ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
-            self._frame_hid,
+            self._marco_hid,
             text="Modo teclado (Bluetooth)",
             font=("", 14, "bold"),
         ).pack(anchor="w", padx=12, pady=(0, 6))
         tk.Label(
-            self._frame_hid,
+            self._marco_hid,
             text="Empareja la pistola con la laptop. Si ya se ha hecho antes, primero olvida el dispositivo en la laptop. Después, empareja de nuevo.",
             font=("", 9),
             wraplength=440,
@@ -1068,108 +1072,108 @@ class HandheldApp(tk.Tk):
         ).pack(anchor="w", padx=12, pady=2)
        
 
-    def _legend_chip(self, parent, text, bg):
+    def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
         tk.Label(f, text=text, bg=bg, padx=4, pady=1, font=("", 8)).pack()
         return f
 
-    def _on_filter_change(self):
-        self._apply_result_filter()
+    def _al_cambiar_filtro_resultados(self):
+        self._aplicar_filtro_resultados()
 
-    def _result_new_scan(self):
-        self._show_frame("setup")
+    def _nuevo_escaneo_desde_resultados(self):
+        self._mostrar_marco("ubicacion")
 
-    def _toggle_pause(self):
-        if not self._scanner.is_running():
+    def _alternar_pausa_escaneo(self):
+        if not self._escaner.esta_en_ejecucion():
             return
-        if self._scanner.is_paused():
-            self._scanner.resume()
-            self.btn_pause.config(text="Pausar")
+        if self._escaner.esta_pausado():
+            self._escaner.reanudar()
+            self.btn_pausar_escaneo.config(text="Pausar")
         else:
-            self._scanner.pause()
-            self.btn_pause.config(text="Reanudar")
+            self._escaner.pausar()
+            self.btn_pausar_escaneo.config(text="Reanudar")
 
-    def _set_scan_controls_reading(self, active):
-        """active=True: pistoleo en curso (Iniciar off, Detener/Pausar on). active=False: listo para iniciar."""
-        if active:
-            self.btn_begin_pistol.config(state="disabled")
-            self.btn_stop.config(state="normal")
-            self.btn_pause.config(state="normal", text="Pausar")
-            self.btn_cancel_scan.config(state="normal")
+    def _ajustar_controles_escaneo_activo(self, en_curso):
+        """en_curso=True: pistoleo en curso (Iniciar off, Detener/Pausar on). en_curso=False: listo para iniciar."""
+        if en_curso:
+            self.btn_iniciar_pistoleo.config(state="disabled")
+            self.btn_detener_escaneo.config(state="normal")
+            self.btn_pausar_escaneo.config(state="normal", text="Pausar")
+            self.btn_cancelar_escaneo.config(state="normal")
         else:
-            self.btn_begin_pistol.config(state="normal")
-            self.btn_stop.config(state="disabled")
-            self.btn_pause.config(state="disabled", text="Pausar")
+            self.btn_iniciar_pistoleo.config(state="normal")
+            self.btn_detener_escaneo.config(state="disabled")
+            self.btn_pausar_escaneo.config(state="disabled", text="Pausar")
 
-    def _fill_scan_tree_and_header(self):
-        loc = self._location_key()
-        self._refresh_setup_hint()
-        self._expected_set = self._inventory.get_expected_set(loc)
-        self._tree_expected_items = {}
-        self._tree_new_items = {}
-        for item in self.scan_tree.get_children():
-            self.scan_tree.delete(item)
-        for epc in sorted(list(self._expected_set)):
-            disp = asset_display_from_epc(epc)
-            iid = self.scan_tree.insert("", tk.END, values=("NO ESCANEADO", disp, ""), tags=("missing",))
-            self._tree_expected_items[epc] = iid
-        self.scan_line_location.set("Ubicación: {0}".format(loc))
-        self.scan_line_time.set("Tiempo: 0.0 s")
-        self.scan_line_counts.set(
-            "Esperados: {0} | Leídos únicos: 0".format(self._inventory.expected_count(loc))
+    def _llenar_arbol_escaneo_y_encabezado(self):
+        ubicacion = self._clave_ubicacion_actual()
+        self._actualizar_pista_ubicacion()
+        self._conjunto_epcs_esperados = self._servicio_inventario.conjunto_esperados(ubicacion)
+        self._arbol_escaneo_items_esperados = {}
+        self._arbol_escaneo_items_nuevos = {}
+        for item in self.arbol_escaneo.get_children():
+            self.arbol_escaneo.delete(item)
+        for epc in sorted(list(self._conjunto_epcs_esperados)):
+            disp = mostrar_activo_desde_epc(epc)
+            iid = self.arbol_escaneo.insert("", tk.END, values=("NO ESCANEADO", disp, ""), tags=("faltante",))
+            self._arbol_escaneo_items_esperados[epc] = iid
+        self.var_linea_ubicacion_escaneo.set("Ubicación: {0}".format(ubicacion))
+        self.var_linea_tiempo_escaneo.set("Tiempo: 0.0 s")
+        self.var_linea_conteos_escaneo.set(
+            "Esperados: {0} | Leídos únicos: 0".format(self._servicio_inventario.cantidad_esperados(ubicacion))
         )
 
-    def go_to_scan_screen(self):
+    def ir_a_pantalla_escaneo(self):
         """Solo navega a la pantalla de inventario; no arranca el lector (evita el mismo clic como trigger)."""
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._recent_log = []
-        self.listbox.delete(0, tk.END)
-        self._fill_scan_tree_and_header()
-        self._set_scan_controls_reading(False)
-        self._show_frame("scan")
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._lineas_log_escaneo = []
+        self.lista_log_escaneo.delete(0, tk.END)
+        self._llenar_arbol_escaneo_y_encabezado()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("escaneo")
 
-    def begin_pistol_scan(self):
+    def iniciar_pistoleo(self):
         """Aquí sí arranca el escaneo continuo (simulación de pistoleo)."""
-        if self._scanner.is_running():
+        if self._escaner.esta_en_ejecucion():
             return
-        self._cancel_pending_pistol_start()
-        self._scanner.reset()
-        self._recent_log = []
-        self.listbox.delete(0, tk.END)
-        self._fill_scan_tree_and_header()
-        self._set_scan_controls_reading(True)
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reiniciar()
+        self._lineas_log_escaneo = []
+        self.lista_log_escaneo.delete(0, tk.END)
+        self._llenar_arbol_escaneo_y_encabezado()
+        self._ajustar_controles_escaneo_activo(True)
         # Pequeño retraso: el clic del botón no debe solaparse con la primera lectura (trigger simulado).
-        self._pistol_start_job = self.after(120, self._start_pistol_thread)
+        self._tarea_inicio_pistoleo = self.after(120, self._iniciar_hilo_pistoleo)
 
-    def _cancel_pending_pistol_start(self):
-        if self._pistol_start_job is not None:
+    def _cancelar_inicio_pistoleo_pendiente(self):
+        if self._tarea_inicio_pistoleo is not None:
             try:
-                self.after_cancel(self._pistol_start_job)
+                self.after_cancel(self._tarea_inicio_pistoleo)
             except Exception:
                 pass
-            self._pistol_start_job = None
+            self._tarea_inicio_pistoleo = None
 
-    def _start_pistol_thread(self):
-        self._pistol_start_job = None
-        if self._scanner.is_running():
+    def _iniciar_hilo_pistoleo(self):
+        self._tarea_inicio_pistoleo = None
+        if self._escaner.esta_en_ejecucion():
             return
-        self._scan_started_ms = int(self.tk.call("clock", "milliseconds"))
-        self._start_scan_timer()
-        self._scanner.resume()
-        self._scanner.start(on_tag_read=self._on_tag_read, on_error=self._on_scan_error)
+        self._escaneo_inicio_ms = int(self.tk.call("clock", "milliseconds"))
+        self._iniciar_temporizador_escaneo()
+        self._escaner.reanudar()
+        self._escaner.iniciar(al_leer_etiqueta=self._al_leer_etiqueta, al_error=self._al_error_escaneo)
 
-    def _on_scan_error(self, e: Exception):
-        # Corre en hilo de Scanner; brincar a hilo UI con after()
-        def ui():
-            self._cancel_pending_pistol_start()
-            self._scanner.resume()
-            self._scanner.stop()
-            self._stop_scan_timer()
-            self._set_scan_controls_reading(False)
-            msg = (
+    def _al_error_escaneo(self, e: Exception):
+        # Corre en hilo de Escaner; brincar a hilo UI con after()
+        def ejecutar_ui():
+            self._cancelar_inicio_pistoleo_pendiente()
+            self._escaner.reanudar()
+            self._escaner.detener()
+            self._detener_temporizador_escaneo()
+            self._ajustar_controles_escaneo_activo(False)
+            mensaje_error = (
                 "Se perdió la conexión con el lector (serial).\n\n"
                 f"Detalle: {e}\n\n"
                 "Causas típicas:\n"
@@ -1180,20 +1184,20 @@ class HandheldApp(tk.Tk):
                 "  ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null\n"
                 "  lsof /dev/ttyUSB0 2>/dev/null\n"
             )
-            messagebox.showerror("Lector desconectado", msg)
+            messagebox.showerror("Lector desconectado", mensaje_error)
 
         try:
-            self.after(0, ui)
+            self.after(0, ejecutar_ui)
         except Exception:
             pass
 
-    def connect(self):
-        if self._driver.connected:
+    def conectar_lector(self):
+        if self._lector.connected:
             messagebox.showinfo("Info", "Ya conectado.")
-            self.btn_continue.config(state="normal")
-            self.home_status_var.set("Lector: conectado")
+            self.btn_continuar.config(state="normal")
+            self.var_estado_lector.set("Lector: conectado")
             return
-        port = self.port_var.get().strip()
+        port = self.var_puerto_serial.get().strip()
         port_l = port.lower()
         if port_l.startswith("/dev/ttyusb"):
             port = "/dev/ttyUSB" + port[len("/dev/ttyusb") :]
@@ -1203,29 +1207,29 @@ class HandheldApp(tk.Tk):
             messagebox.showerror("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
             return
         try:
-            baud = int(self.baud_var.get().strip())
+            baud = int(self.var_baudios.get().strip())
         except ValueError:
             messagebox.showerror("Error", "Baud inválido.")
             return
         try:
-            self._driver.connect(port, baud, debug=False)
+            self._lector.conectar(port, baud, debug=False)
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return
-        self.home_status_var.set("Lector: conectado ({0} @ {1})".format(port, baud))
-        self.btn_connect.config(state="disabled")
-        self.btn_continue.config(state="normal")
+        self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
+        self.btn_conectar_lector.config(state="disabled")
+        self.btn_continuar.config(state="normal")
 
-    def stop_scan(self):
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._compare_and_show()
-        self._show_frame("result")
+    def detener_escaneo(self):
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._comparar_y_mostrar_resultados()
+        self._mostrar_marco("resultados")
 
-    def _export_tipo_ubicacion_updated(self):
+    def _exportar_tipo_ubicacion_actualizado(self):
         """Genera un reporte de sesión con el MISMO formato que el catálogo de activos.
 
         - Salida: lista JSON con objetos `{idDetalle, tipoUbicacion, activo:{...}}`
@@ -1235,248 +1239,248 @@ class HandheldApp(tk.Tk):
           - U si el EPC fue escaneado pero no era esperado en la ubicación actual
         """
         try:
-            loc = self._location_key()
-            snap = self._last_snap or {"seen_epcs": set()}
-            found = set(snap.get("seen_epcs") or set())
-            expected = set(self._expected_set or set())
+            ubicacion = self._clave_ubicacion_actual()
+            muestra = self._ultima_muestra_escaneo or {"seen_epcs": set()}
+            leidos = set(muestra.get("seen_epcs") or set())
+            esperados = set(self._conjunto_epcs_esperados or set())
 
-            here = os.path.dirname(os.path.abspath(__file__))
-            web_dir = os.path.abspath(os.path.join(here, "..", "..", "pi_ble_hid", "web"))
-            activos_path = os.path.join(web_dir, "activosPiso2_Computacion.json")
-            if not os.path.isfile(activos_path):
-                messagebox.showerror("Actualización", f"No existe:\n{activos_path}")
+            directorio_actual = os.path.dirname(os.path.abspath(__file__))
+            dir_web = os.path.abspath(os.path.join(directorio_actual, "..", "..", "pi_ble_hid", "web"))
+            ruta_activos = os.path.join(dir_web, "activosPiso2_Computacion.json")
+            if not os.path.isfile(ruta_activos):
+                messagebox.showerror("Actualización", f"No existe:\n{ruta_activos}")
                 return
-            rows = json.loads(open(activos_path, "r", encoding="utf-8").read())
-            if not isinstance(rows, list):
+            filas = json.loads(open(ruta_activos, "r", encoding="utf-8").read())
+            if not isinstance(filas, list):
                 messagebox.showerror("Actualización", "El JSON de activos no tiene formato de lista.")
                 return
 
-            # Index por código de activo para recuperar el row original sin modificar su estructura.
-            by_code = {}
-            for r in rows:
-                a = (r or {}).get("activo") or {}
-                code = a.get("activo")
-                if code:
-                    by_code[str(code).strip()] = r
+            # Índice por código de activo para recuperar la fila original sin cambiar su estructura.
+            indice_codigo = {}
+            for fila in filas:
+                activo_obj = (fila or {}).get("activo") or {}
+                codigo = activo_obj.get("activo")
+                if codigo:
+                    indice_codigo[str(codigo).strip()] = fila
 
-            expected_l = {str(x).lower() for x in expected}
-            out_rows = []
-            found_l = {str(x).lower() for x in found}
+            esperados_min = {str(x).lower() for x in esperados}
+            filas_salida = []
+            leidos_min = {str(x).lower() for x in leidos}
 
             # 1) Escaneados: C/U (o ACTIVO NUEVO si no existe en catálogo base)
-            for epc in sorted(found_l):
-                code = epc12_hex_to_asset_code(epc)
-                src = by_code.get(code) if code else None
-                if src:
-                    rr = json.loads(json.dumps(src, ensure_ascii=False))  # deep copy sin cambiar formato
-                    rr["tipoUbicacion"] = "C" if epc in expected_l else "U"
-                    out_rows.append(rr)
+            for epc in sorted(leidos_min):
+                codigo = epc12_hex_a_codigo_activo(epc)
+                fila_orig = indice_codigo.get(codigo) if codigo else None
+                if fila_orig:
+                    copia = json.loads(json.dumps(fila_orig, ensure_ascii=False))  # deep copy sin cambiar formato
+                    copia["tipoUbicacion"] = "C" if epc in esperados_min else "U"
+                    filas_salida.append(copia)
                     continue
 
                 # Activo NUEVO (no existe en el catálogo base): conservar formato "tipo webservice"
-                out_rows.append(
+                filas_salida.append(
                     {
                         "idDetalle": None,
                         "tipoUbicacion": "U",
                         "activo": {
-                            "activo": code or None,
+                            "activo": codigo or None,
                             "descripcion": "ACTIVO NUEVO",
                             "idUbicacion": None,
-                            "nombreUbicacion": loc,
+                            "nombreUbicacion": ubicacion,
                             "nombreResponsable": None,
                         },
                     }
                 )
 
             # 2) Esperados pero NO escaneados en esta ubicación: N
-            for epc in sorted(expected_l.difference(found_l)):
-                code = epc12_hex_to_asset_code(epc)
-                if not code:
+            for epc in sorted(esperados_min.difference(leidos_min)):
+                codigo = epc12_hex_a_codigo_activo(epc)
+                if not codigo:
                     continue
-                src = by_code.get(code)
-                if not src:
+                fila_orig = indice_codigo.get(codigo)
+                if not fila_orig:
                     continue
-                rr = json.loads(json.dumps(src, ensure_ascii=False))  # deep copy
-                rr["tipoUbicacion"] = "N"
-                out_rows.append(rr)
+                copia = json.loads(json.dumps(fila_orig, ensure_ascii=False))  # deep copy
+                copia["tipoUbicacion"] = "N"
+                filas_salida.append(copia)
 
-            out_dir = os.path.abspath(os.path.join(web_dir, "resultados"))
-            os.makedirs(out_dir, exist_ok=True)
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_loc = "".join([c for c in loc if c.isalnum() or c in (" ", "-", "_", "·")]).strip().replace(" ", "_")
-            out_path = os.path.join(out_dir, f"activosPiso2_Computacion_sesion_{safe_loc}_{ts}.json")
-            open(out_path, "w", encoding="utf-8").write(json.dumps(out_rows, ensure_ascii=False, indent=2))
+            dir_resultados = os.path.abspath(os.path.join(dir_web, "resultados"))
+            os.makedirs(dir_resultados, exist_ok=True)
+            marca_tiempo = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            ubicacion_segura = "".join([c for c in ubicacion if c.isalnum() or c in (" ", "-", "_", "·")]).strip().replace(" ", "_")
+            ruta_salida = os.path.join(dir_resultados, f"activosPiso2_Computacion_sesion_{ubicacion_segura}_{marca_tiempo}.json")
+            open(ruta_salida, "w", encoding="utf-8").write(json.dumps(filas_salida, ensure_ascii=False, indent=2))
 
-            messagebox.showinfo("Actualización", f"Archivo generado:\n{out_path}")
+            messagebox.showinfo("Actualización", f"Archivo generado:\n{ruta_salida}")
         except Exception:
             # No bloquea el flujo principal
             return
 
-    def cancel_scan(self):
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._show_frame("setup")
+    def cancelar_escaneo(self):
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("ubicacion")
 
-    def _start_scan_timer(self):
-        self._stop_scan_timer()
+    def _iniciar_temporizador_escaneo(self):
+        self._detener_temporizador_escaneo()
 
-        def tick():
-            if not self._scanner.is_running():
+        def actualizar_temporizador_escaneo():
+            if not self._escaner.esta_en_ejecucion():
                 return
-            now_ms = int(self.tk.call("clock", "milliseconds"))
-            elapsed_s = 0.0
-            if self._scan_started_ms is not None:
-                elapsed_s = max(0.0, (now_ms - self._scan_started_ms) / 1000.0)
-            loc = self._location_key()
-            snap = self._scanner.snapshot()
-            uniques = len(snap["seen_epcs"])
-            self.scan_line_location.set("Ubicación: {0}".format(loc))
-            self.scan_line_time.set("Tiempo: {0:.1f} s".format(elapsed_s))
-            self.scan_line_counts.set(
-                "Esperados: {0} | Leídos únicos: {1}".format(self._inventory.expected_count(loc), uniques)
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            segundos_transcurridos = 0.0
+            if self._escaneo_inicio_ms is not None:
+                segundos_transcurridos = max(0.0, (instante_ms - self._escaneo_inicio_ms) / 1000.0)
+            ubicacion = self._clave_ubicacion_actual()
+            muestra_act = self._escaner.instantanea()
+            total_unicos = len(muestra_act["seen_epcs"])
+            self.var_linea_ubicacion_escaneo.set("Ubicación: {0}".format(ubicacion))
+            self.var_linea_tiempo_escaneo.set("Tiempo: {0:.1f} s".format(segundos_transcurridos))
+            self.var_linea_conteos_escaneo.set(
+                "Esperados: {0} | Leídos únicos: {1}".format(self._servicio_inventario.cantidad_esperados(ubicacion), total_unicos)
             )
-            self._scan_timer_job = self.after(250, tick)
+            self._tarea_temporizador_escaneo = self.after(250, actualizar_temporizador_escaneo)
 
-        self._scan_timer_job = self.after(250, tick)
+        self._tarea_temporizador_escaneo = self.after(250, actualizar_temporizador_escaneo)
 
-    def _stop_scan_timer(self):
-        if self._scan_timer_job is not None:
+    def _detener_temporizador_escaneo(self):
+        if self._tarea_temporizador_escaneo is not None:
             try:
-                self.after_cancel(self._scan_timer_job)
+                self.after_cancel(self._tarea_temporizador_escaneo)
             except Exception:
                 pass
-        self._scan_timer_job = None
-        self._scan_started_ms = None
+        self._tarea_temporizador_escaneo = None
+        self._escaneo_inicio_ms = None
 
-    def _append_log_line(self, line):
-        self._recent_log.append(line)
-        while len(self._recent_log) > self._LOG_MAX_LINES:
-            self._recent_log.pop(0)
-        self.listbox.delete(0, tk.END)
-        for ln in self._recent_log:
-            self.listbox.insert(tk.END, ln)
+    def _agregar_linea_log_escaneo(self, fila_log):
+        self._lineas_log_escaneo.append(fila_log)
+        while len(self._lineas_log_escaneo) > self._MAX_LINEAS_LOG_ESCANEO:
+            self._lineas_log_escaneo.pop(0)
+        self.lista_log_escaneo.delete(0, tk.END)
+        for ln in self._lineas_log_escaneo:
+            self.lista_log_escaneo.insert(tk.END, ln)
 
-    def _on_tag_read(self, tag, idx_in_batch):
-        line = "{0}  RSSI={1}".format(tag.epc_hex, tag.rssi)
+    def _al_leer_etiqueta(self, tag, idx_in_batch):
+        fila_log = "{0}  RSSI={1}".format(tag.epc_hex, tag.rssi)
         delay_ms = idx_in_batch * 45
 
-        def append():
-            self._append_log_line(line)
-            self._update_scan_tree_live(tag)
+        def agregar_a_log():
+            self._agregar_linea_log_escaneo(fila_log)
+            self._actualizar_arbol_escaneo_en_vivo(tag)
 
         if delay_ms <= 0:
-            self.after(0, append)
+            self.after(0, agregar_a_log)
         else:
-            self.after(delay_ms, append)
+            self.after(delay_ms, agregar_a_log)
 
-    def _update_scan_tree_live(self, tag):
+    def _actualizar_arbol_escaneo_en_vivo(self, tag):
         epc = tag.epc_hex
-        if epc in self._expected_set:
-            iid = self._tree_expected_items.get(epc)
+        if epc in self._conjunto_epcs_esperados:
+            iid = self._arbol_escaneo_items_esperados.get(epc)
             if iid is not None:
                 try:
-                    disp = asset_display_from_epc(epc)
-                    self.scan_tree.item(
+                    disp = mostrar_activo_desde_epc(epc)
+                    self.arbol_escaneo.item(
                         iid,
                         values=("ENCONTRADO", disp, tag.rssi),
-                        tags=("found",),
+                        tags=("encontrado",),
                     )
                 except Exception:
                     pass
             return
 
-        iid_new = self._tree_new_items.get(epc)
+        iid_new = self._arbol_escaneo_items_nuevos.get(epc)
         if iid_new is None:
-            disp = asset_display_from_epc(epc)
-            iid_new = self.scan_tree.insert("", tk.END, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("new",))
-            self._tree_new_items[epc] = iid_new
+            disp = mostrar_activo_desde_epc(epc)
+            iid_new = self.arbol_escaneo.insert("", tk.END, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("nuevo",))
+            self._arbol_escaneo_items_nuevos[epc] = iid_new
         else:
             try:
-                disp = asset_display_from_epc(epc)
-                self.scan_tree.item(iid_new, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("new",))
+                disp = mostrar_activo_desde_epc(epc)
+                self.arbol_escaneo.item(iid_new, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("nuevo",))
             except Exception:
                 pass
 
-    def _compare_and_show(self):
-        loc = self._location_key()
-        r, snap, expected = self._inventory.compare_location(loc)
-        self._last_snap = snap
-        self._result_location = loc
+    def _comparar_y_mostrar_resultados(self):
+        ubicacion = self._clave_ubicacion_actual()
+        resultado, muestra, epcs_esperados = self._servicio_inventario.comparar_ubicacion(ubicacion)
+        self._ultima_muestra_escaneo = muestra
+        self._ubicacion_texto_resultados = ubicacion
 
-        self.result_line_location.set("Ubicación: {0}".format(loc))
-        self.result_line_stats.set(
-            "Esperados: {0} | ENCONTRADOS: {1} | Faltan: {2} | Nuevos: {3}".format(
-                len(expected),
-                len(r.encontrados),
-                len(r.faltantes),
-                len(r.nuevos),
+        self.var_linea_ubicacion_resultados.set("Ubicación: {0}".format(ubicacion))
+        self.var_linea_estadisticas_resultados.set(
+            "Esperados: {0} | Encontrados: {1} | Faltan: {2} | Nuevos: {3}".format(
+                len(epcs_esperados),
+                len(resultado.encontrados),
+                len(resultado.faltantes),
+                len(resultado.nuevos),
             )
         )
 
-        self._result_rows = []
-        self._result_iid_to_epc = {}
-        self._result_rows = build_result_rows(r, snap)
+        self._filas_resultados_inventario = []
+        self._resultado_iid_a_epc = {}
+        self._filas_resultados_inventario = construir_filas_resultado(resultado, muestra)
 
-        self._filter_mode.set("todos")
-        self._apply_result_filter()
+        self._modo_filtro_resultados.set("todos")
+        self._aplicar_filtro_resultados()
 
-    def _apply_result_filter(self):
-        mode = self._filter_mode.get()
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self._result_iid_to_epc = {}
+    def _aplicar_filtro_resultados(self):
+        filtro = self._modo_filtro_resultados.get()
+        for item in self.arbol_resultados.get_children():
+            self.arbol_resultados.delete(item)
+        self._resultado_iid_a_epc = {}
 
-        for row in self._result_rows:
-            if mode == "faltantes" and row["kind"] != "faltante":
+        for fila in self._filas_resultados_inventario:
+            if filtro == "faltantes" and fila["tipo"] != "faltante":
                 continue
-            if mode == "nuevos" and row["kind"] != "nuevo":
+            if filtro == "nuevos" and fila["tipo"] != "nuevo":
                 continue
-            tag = "found"
-            if row["kind"] == "faltante":
-                tag = "missing"
-            elif row["kind"] == "nuevo":
-                tag = "new"
-            epc = row["epc"]
-            disp = asset_display_from_epc(epc)
-            iid = self.tree.insert(
+            etiqueta = "encontrado"
+            if fila["tipo"] == "faltante":
+                etiqueta = "faltante"
+            elif fila["tipo"] == "nuevo":
+                etiqueta = "nuevo"
+            epc = fila["epc"]
+            texto_activo = mostrar_activo_desde_epc(epc)
+            iid = self.arbol_resultados.insert(
                 "",
                 tk.END,
-                values=(row["status"], disp, row["rssi"]),
-                tags=(tag,),
+                values=(fila["estado"], texto_activo, fila["rssi"]),
+                tags=(etiqueta,),
             )
-            self._result_iid_to_epc[iid] = epc
+            self._resultado_iid_a_epc[iid] = epc
 
-    def _on_result_double_click(self, event):
-        sel = self.tree.selection()
-        if not sel:
+    def _al_doble_clic_resultado(self, event):
+        seleccion = self.arbol_resultados.selection()
+        if not seleccion:
             return
-        vals = self.tree.item(sel[0], "values")
-        if len(vals) < 3:
+        valores = self.arbol_resultados.item(seleccion[0], "values")
+        if len(valores) < 3:
             return
-        status, _disp, rssi = vals[0], vals[1], vals[2]
-        epc = self._result_iid_to_epc.get(sel[0], "")
-        self.detail_epc_var.set(epc)
-        self.detail_code_var.set(asset_code_or_dash(epc))
-        self.detail_status_var.set(status)
-        self.detail_loc_var.set(self._result_location)
-        self.detail_rssi_var.set(rssi if rssi else "—")
-        self._show_frame("detail")
+        estado_fila, _texto, rssi = valores[0], valores[1], valores[2]
+        epc = self._resultado_iid_a_epc.get(seleccion[0], "")
+        self.var_detalle_epc.set(epc)
+        self.var_detalle_codigo_activo.set(codigo_activo_o_guion_desde_epc(epc))
+        self.var_detalle_estado.set(estado_fila)
+        self.var_detalle_ubicacion.set(self._ubicacion_texto_resultados)
+        self.var_detalle_rssi.set(rssi if rssi else "—")
+        self._mostrar_marco("detalle")
 
-    def on_close(self):
+    def al_cerrar_ventana(self):
         try:
-            self._cancel_pending_pistol_start()
-            self._scanner.resume()
-            self._scanner.stop()
-            self._driver.close()
+            self._cancelar_inicio_pistoleo_pendiente()
+            self._escaner.reanudar()
+            self._escaner.detener()
+            self._lector.cerrar()
         finally:
             self.destroy()
 
 
 def main():
-    HandheldApp().mainloop()
+    AplicacionInventario().mainloop()
     return 0
 
 

@@ -17,32 +17,31 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from rfid_inventory.catalog.epc12_codec import asset_code_to_epc12_hex
+from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex
 
 
-def update_tipo_ubicacion_rows(
-    activos_rows: list[dict[str, Any]],
-    expected_epcs: set[str],
-    found_epcs: set[str],
+def actualizar_filas_tipo_ubicacion(
+    filas_activos: list[dict[str, Any]],
+    epcs_esperados: set[str],
+    epcs_leidos: set[str],
 ) -> list[dict[str, Any]]:
-    expected = {str(x).lower() for x in (expected_epcs or set())}
-    found = {str(x).lower() for x in (found_epcs or set())}
+    esperados = {str(x).lower() for x in (epcs_esperados or set())}
+    leidos = {str(x).lower() for x in (epcs_leidos or set())}
 
-    out: list[dict[str, Any]] = copy.deepcopy(activos_rows or [])
-    for r in out:
-        a = (r or {}).get("activo") or {}
-        code = a.get("activo")
-        if not code:
+    salida: list[dict[str, Any]] = copy.deepcopy(filas_activos or [])
+    for fila in salida:
+        activo = (fila or {}).get("activo") or {}
+        codigo = activo.get("activo")
+        if not codigo:
             continue
-        epc = asset_code_to_epc12_hex(str(code)).lower()
-        if epc in found and epc in expected:
-            r["tipoUbicacion"] = "C"
-        elif epc in found and epc not in expected:
-            r["tipoUbicacion"] = "U"
-        elif epc in expected and epc not in found:
-            r["tipoUbicacion"] = "N"
+        epc = codigo_activo_a_epc12_hex(str(codigo)).lower()
+        if epc in leidos and epc in esperados:
+            fila["tipoUbicacion"] = "C"
+        elif epc in leidos and epc not in esperados:
+            fila["tipoUbicacion"] = "U"
+        elif epc in esperados and epc not in leidos:
+            fila["tipoUbicacion"] = "N"
         else:
             # No esperado aquí y no encontrado aquí: no cambia (mantiene lo que traiga)
             pass
-    return out
-
+    return salida

@@ -15,11 +15,11 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from .epc12_codec import asset_code_to_epc12_hex
+from .epc12_codec import codigo_activo_a_epc12_hex
 
 
-def _read_json_first(paths: list[str]) -> Any:
-    for p in paths:
+def _leer_json_primera_ruta_valida(rutas: list[str]) -> Any:
+    for p in rutas:
         if not p or not os.path.isfile(p):
             continue
         try:
@@ -29,131 +29,128 @@ def _read_json_first(paths: list[str]) -> Any:
     return None
 
 
-def _parse_nombre_ubicacion(nombre: str) -> tuple[str, str]:
+def _partir_nombre_ubicacion(nombre: str) -> tuple[str, str]:
     """Extrae edificio y 'sala' desde el string del catálogo."""
     if not nombre:
         return ("(Sin edificio)", "(Sin sala)")
     parts = [p.strip() for p in str(nombre).split(" - ") if p.strip()]
-    fields: dict[str, str] = {}
+    campos: dict[str, str] = {}
     for p in parts:
         if ":" in p:
             k, v = p.split(":", 1)
-            fields[k.strip().lower()] = v.strip()
-    edificio = fields.get("edificio") or "(Sin edificio)"
-    piso = fields.get("piso")
-    cubo = fields.get("cubo")
-    subcubo = fields.get("subcubo")
-    area = fields.get("area")
-    sala_bits = []
+            campos[k.strip().lower()] = v.strip()
+    edificio = campos.get("edificio") or "(Sin edificio)"
+    piso = campos.get("piso")
+    cubo = campos.get("cubo")
+    subcubo = campos.get("subcubo")
+    area = campos.get("area")
+    partes_sala = []
     if piso:
-        sala_bits.append(f"Piso {piso}")
+        partes_sala.append(f"Piso {piso}")
     if cubo:
-        sala_bits.append(f"Cubo {cubo}")
+        partes_sala.append(f"Cubo {cubo}")
     if subcubo:
-        sala_bits.append(f"SubCubo {subcubo}")
+        partes_sala.append(f"SubCubo {subcubo}")
     if area:
-        sala_bits.append(area)
-    sala = " · ".join(sala_bits) if sala_bits else str(nombre)
+        partes_sala.append(area)
+    sala = " · ".join(partes_sala) if partes_sala else str(nombre)
     return (edificio, sala)
 
 
-def _sala_from_ubic_row(u: dict) -> str:
-    piso = u.get("piso")
-    cubo = u.get("cubo")
-    subcubo = u.get("subcubo")
-    area = u.get("area")
-    sala_bits = []
+def _sala_desde_fila_ubicacion(fila: dict) -> str:
+    piso = fila.get("piso")
+    cubo = fila.get("cubo")
+    subcubo = fila.get("subcubo")
+    area = fila.get("area")
+    partes_sala = []
     if piso:
-        sala_bits.append(f"Piso {piso}")
+        partes_sala.append(f"Piso {piso}")
     if cubo:
-        sala_bits.append(f"Cubo {cubo}")
+        partes_sala.append(f"Cubo {cubo}")
     if subcubo:
-        sala_bits.append(f"SubCubo {subcubo}")
+        partes_sala.append(f"SubCubo {subcubo}")
     if area:
-        sala_bits.append(str(area))
-    nombre_u = u.get("nombreUbicacion")
-    return " · ".join(sala_bits) if sala_bits else (str(nombre_u) if nombre_u else "(Sin sala)")
+        partes_sala.append(str(area))
+    nombre_u = fila.get("nombreUbicacion")
+    return " · ".join(partes_sala) if partes_sala else (str(nombre_u) if nombre_u else "(Sin sala)")
 
 
 @dataclass(frozen=True)
-class CatalogPaths:
+class RutasCatalogo:
     ubicaciones_paths: list[str]
     activos_paths: list[str]
 
 
-def default_catalog_paths(repo_root: str) -> CatalogPaths:
-    """Conveniencia: rutas típicas del repo (web/ primero)."""
-    web_dir = os.path.join(repo_root, "rfid_inventory", "pi_ble_hid", "web")
-    data_dir = os.path.join(repo_root, "rfid_inventory", "data", "catalog_ejemplo")
-    return CatalogPaths(
-        ubicaciones_paths=[
-            os.path.join(web_dir, "ubicacionesComputacion.json"),
-            os.path.join(data_dir, "ubicacionesComputacion.json"),
-        ],
-        activos_paths=[
-            os.path.join(web_dir, "activosPiso2_Computacion.json"),
-            os.path.join(data_dir, "activosPiso2_Computacion.json"),
-        ],
+def rutas_catalogo_por_defecto(ruta_raiz_repositorio: str, *, prefer_web_dir: bool = True) -> RutasCatalogo:
+    """Conveniencia: rutas típicas del repo (`web/` o `data/catalog_ejemplo/` según preferencia)."""
+    web_dir = os.path.join(ruta_raiz_repositorio, "rfid_inventory", "pi_ble_hid", "web")
+    data_dir = os.path.join(ruta_raiz_repositorio, "rfid_inventory", "data", "catalog_ejemplo")
+    if prefer_web_dir:
+        dirs = [web_dir, data_dir]
+    else:
+        dirs = [data_dir, web_dir]
+    return RutasCatalogo(
+        ubicaciones_paths=[os.path.join(d, "ubicacionesComputacion.json") for d in dirs],
+        activos_paths=[os.path.join(d, "activosPiso2_Computacion.json") for d in dirs],
     )
 
 
-def load_locations_nested_from_json(paths: CatalogPaths) -> dict[str, dict[str, list[str]]]:
+def cargar_ubicaciones_anidadas_desde_json(rutas: RutasCatalogo) -> dict[str, dict[str, list[str]]]:
     """edificio -> sala -> lista de EPC esperados (hex)."""
-    ubic_rows = _read_json_first(paths.ubicaciones_paths) or []
-    activo_rows = _read_json_first(paths.activos_paths) or []
-    if not isinstance(ubic_rows, list):
-        ubic_rows = []
-    if not isinstance(activo_rows, list):
-        activo_rows = []
+    filas_ubic = _leer_json_primera_ruta_valida(rutas.ubicaciones_paths) or []
+    filas_activos = _leer_json_primera_ruta_valida(rutas.activos_paths) or []
+    if not isinstance(filas_ubic, list):
+        filas_ubic = []
+    if not isinstance(filas_activos, list):
+        filas_activos = []
 
-    ubic_by_id: dict[int, dict] = {}
-    for u in ubic_rows:
+    ubic_por_id: dict[int, dict] = {}
+    for u in filas_ubic:
         if not isinstance(u, dict):
             continue
         uid = u.get("idUbicacion")
         if isinstance(uid, int):
-            ubic_by_id[uid] = u
+            ubic_por_id[uid] = u
 
-    out: dict[str, dict[str, list[str]]] = {}
-    seen_per_room: dict[tuple[str, str], set[str]] = {}
+    anidado: dict[str, dict[str, list[str]]] = {}
+    vistos_por_sala: dict[tuple[str, str], set[str]] = {}
 
     # 1) Publica TODAS las ubicaciones, aunque no tengan activos.
-    for _uid, u in ubic_by_id.items():
+    for _uid, u in ubic_por_id.items():
         edif = u.get("edificio") or "(Sin edificio)"
-        sala = _sala_from_ubic_row(u)
-        out.setdefault(edif, {}).setdefault(sala, [])
-        seen_per_room.setdefault((edif, sala), set())
+        sala = _sala_desde_fila_ubicacion(u)
+        anidado.setdefault(edif, {}).setdefault(sala, [])
+        vistos_por_sala.setdefault((edif, sala), set())
 
     # 2) Agrega activos que hagan match por idUbicacion; ignora activos fuera del catálogo de ubicaciones.
-    for r in activo_rows:
+    for r in filas_activos:
         a = (r or {}).get("activo") or {}
         code = a.get("activo")
         if not code:
             continue
         uid = a.get("idUbicacion")
-        if not (isinstance(uid, int) and uid in ubic_by_id):
+        if not (isinstance(uid, int) and uid in ubic_por_id):
             continue
-        u = ubic_by_id[uid]
+        u = ubic_por_id[uid]
         edif = u.get("edificio") or "(Sin edificio)"
-        sala = _sala_from_ubic_row(u)
-        epc_hex = asset_code_to_epc12_hex(str(code))
-        key = (edif, sala)
-        if epc_hex in seen_per_room.setdefault(key, set()):
+        sala = _sala_desde_fila_ubicacion(u)
+        epc_hex = codigo_activo_a_epc12_hex(str(code))
+        clave = (edif, sala)
+        if epc_hex in vistos_por_sala.setdefault(clave, set()):
             continue
-        seen_per_room[key].add(epc_hex)
-        out.setdefault(edif, {}).setdefault(sala, []).append(epc_hex)
+        vistos_por_sala[clave].add(epc_hex)
+        anidado.setdefault(edif, {}).setdefault(sala, []).append(epc_hex)
 
     # Orden estable
-    for edif in out:
-        for sala in out[edif]:
-            out[edif][sala].sort()
-    return out
+    for edif in anidado:
+        for sala in anidado[edif]:
+            anidado[edif][sala].sort()
+    return anidado
 
 
-def flatten_locations(nested: dict[str, dict[str, list[str]]]) -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for edif, rooms in nested.items():
-        for sala, epcs in rooms.items():
-            out[f"{edif} · {sala}"] = epcs
-    return out
-
+def aplanar_ubicaciones_a_mapa_epcs(anidado: dict[str, dict[str, list[str]]]) -> dict[str, list[str]]:
+    plano: dict[str, list[str]] = {}
+    for edif, salas in anidado.items():
+        for sala, epcs in salas.items():
+            plano[f"{edif} · {sala}"] = epcs
+    return plano
