@@ -148,6 +148,10 @@ class AplicacionInventario(tk.Tk):
         # El servicio BLE (rfid-hid-gatt) suele abrir el mismo puerto serial que esta app;
         # si no liberamos aquí, el inventario puede fallar después o el HID no leer bien.
         self._liberar_puerto_serial_del_lector()
+        try:
+            self._proximidad_detener()
+        except Exception:
+            pass
         # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
         self._mostrar_marco("modo_hid")
 
@@ -1177,12 +1181,12 @@ class AplicacionInventario(tk.Tk):
         self._escaner.iniciar(al_leer_etiqueta=self._al_leer_etiqueta, al_error=self._al_error_escaneo)
 
     def _liberar_puerto_serial_del_lector(self):
-        """Detiene escaneo/proximidad y cierra el driver serial (evita conflicto con rfid-hid-gatt u otros)."""
+        """Detiene el pistoleo y cierra el serial (p. ej. modo HID: otro proceso usa el mismo puerto).
+
+        No llama a _proximidad_detener: comparte el mismo Escaner que el inventario y mezclar
+        ambos cortaba lecturas de forma agresiva.
+        """
         self._cancelar_inicio_pistoleo_pendiente()
-        try:
-            self._proximidad_detener()
-        except Exception:
-            pass
         try:
             self._escaner.reanudar()
             self._escaner.detener()

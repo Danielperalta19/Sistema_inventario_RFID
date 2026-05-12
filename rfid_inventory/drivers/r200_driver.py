@@ -31,7 +31,11 @@ class LectorR200:
 
     def conectar(self, puerto, baudios, debug=False):
         if self._modulo_rfid is not None:
-            return
+            try:
+                self._modulo_rfid.close()
+            except Exception:
+                pass
+            self._modulo_rfid = None
         self._modulo_rfid = R200(puerto, baudios, debug=debug)
         time.sleep(2.0)
 
