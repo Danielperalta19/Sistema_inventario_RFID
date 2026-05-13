@@ -145,19 +145,17 @@ class AplicacionInventario(tk.Tk):
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
 
-        Se ejecuta en background para no congelar la UI.
-        Requiere sudoers NOPASSWD para el usuario (ej. `user`).
+        La pantalla HID se muestra de inmediato; el cierre del serial y el
+        resto no deben bloquear minutos (cerrar el puerto antes de join del escáner).
+        Requiere sudoers NOPASSWD para el usuario (ej. `user`) en btmgmt.
         """
+        self._mostrar_marco("modo_hid")
         self._cerrar_lector_y_parar_escaneo_para_hid()
         try:
             self._proximidad_detener()
         except Exception:
             pass
-        if os.name == "posix":
-            time.sleep(0.35)
         self._intentar_reanudar_gatt_si_lo_pausamos()
-        # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
-        self._mostrar_marco("modo_hid")
 
         # Solo intentamos ejecutar btmgmt en Linux.
         if os.name != "posix":
@@ -337,17 +335,21 @@ class AplicacionInventario(tk.Tk):
             self._gatt_detenido_automaticamente_para_inventario = False
 
     def _cerrar_lector_y_parar_escaneo_para_hid(self) -> None:
-        """Libera el serial en esta app: rfid-hid-gatt debe poder leer el RFID y mandar teclas al HID."""
+        """Libera el serial en esta app: rfid-hid-gatt debe poder leer el RFID y mandar teclas al HID.
+
+        Cierra el lector *antes* de hacer join del hilo del escáner: si no, el hilo puede seguir
+        bloqueado en read() y el join espera demasiado.
+        """
         self._cancelar_inicio_pistoleo_pendiente()
-        try:
-            self._escaner.reanudar()
-            self._escaner.detener()
-        except Exception:
-            pass
         self._detener_temporizador_escaneo()
         self._ajustar_controles_escaneo_activo(False)
         try:
             self._lector.cerrar()
+        except Exception:
+            pass
+        try:
+            self._escaner.reanudar()
+            self._escaner.detener()
         except Exception:
             pass
 
