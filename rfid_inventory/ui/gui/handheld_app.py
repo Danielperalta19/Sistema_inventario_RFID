@@ -1197,7 +1197,7 @@ class AplicacionInventario(tk.Tk):
         messagebox.showinfo("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
 
     def _construir_hid(self):
-        """Modo pistola como teclado Bluetooth: sin inventario en esta pantalla (flujograma: uso con laptop + web)."""
+        """Modo pistola como teclado Bluetooth."""
         self._marco_hid = tk.Frame(self.contenedor)
         ttk.Button(
             self._marco_hid,
@@ -1219,7 +1219,7 @@ class AplicacionInventario(tk.Tk):
         ).pack(anchor="w", padx=12, pady=2)
         tk.Label(
             self._marco_hid,
-            text="Para inventario otra vez: Menú → Inventario y «Conectar lector» (aquí se suelta el puerto para el HID).",
+            text="Para inventario otra vez regresar a menú.",
             font=("", 8),
             fg="#444",
             wraplength=440,
