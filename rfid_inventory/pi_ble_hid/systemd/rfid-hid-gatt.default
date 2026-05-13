@@ -1,6 +1,19 @@
 # Copiar a: /etc/default/rfid-hid-gatt
 # Valores por defecto del servicio rfid-hid-gatt (descomenta o ajusta)
+#
+# --- Mismo puerto que la GUI de inventario (Tkinter) ---
+# Si RFID_PORT está definido, gatt_server_rfid.py abre ese serial para leer
+# etiquetas y mandarlas por BLE. La pantalla "Conectar lector" + inventario
+# usa el MISMO dispositivo: no pueden estar los dos a la vez.
+#
+# Qué hace la app (si en la Pi configuraste sudo sin password para systemctl,
+#   ver pi_ble_hid/docs/GUIA_MODO_BLUETOOTH_HID_RPI.txt sección 5):
+# - Al pistolear inventario: intenta detener rfid-hid-gatt si comparte puerto.
+# - Al abrir «Modo Lector Bluetooth»: cierra el serial en la GUI y luego
+#   reactiva el servicio si la app lo había parado antes (así el GATT puede leer RFID).
+# Si no hay sudo: el operador puede seguir usando los scripts o systemctl a mano.
 
+# RFID_PORT: misma ruta que uses en «Conectar lector» (recomendado /dev/serial/by-id/...).
 RFID_PORT=/dev/ttyUSB0
 RFID_BAUD=115200
 RFID_DEBOUNCE_S=0.35

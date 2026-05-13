@@ -130,11 +130,42 @@ Para que NO pida contraseña, agregamos un sudoers específico (NO general):
 2) Agregar (ajusta el usuario si no es `user`):
   user ALL=(root) NOPASSWD: /usr/bin/btmgmt -i hci0 advertising on
 
+   Opcional (misma Pi con inventario en la GUI + servicio rfid-hid-gatt):
+   la app puede detener/iniciar el servicio solo con `sudo -n` si agregás:
+  user ALL=(root) NOPASSWD: /usr/bin/systemctl stop rfid-hid-gatt.service, /usr/bin/systemctl start rfid-hid-gatt.service
+
+   (Si `which systemctl` muestra `/bin/systemctl`, duplicá la línea con esa ruta
+   o usá la que corresponda en tu sistema.)
+
 3) Guardar. Probar en terminal (debe regresar exit 0 sin pedir password):
   sudo -n /usr/bin/btmgmt -i hci0 advertising on
+  sudo -n /usr/bin/systemctl stop rfid-hid-gatt.service
+  sudo -n /usr/bin/systemctl start rfid-hid-gatt.service
 
-Verificar:
+4) Verificar:
   sudo /usr/bin/btmgmt -i hci0 info
+
+
+Puerto serial: inventario (GUI) vs rfid-hid-gatt
+------------------------------------------------
+Si en `/etc/default/rfid-hid-gatt` tienes `RFID_PORT=...`, el servicio
+`rfid-hid-gatt` abre ese puerto para leer el R200 y enviar teclas por BLE.
+La GUI de inventario usa el mismo dispositivo en «Conectar lector»: no pueden
+estar los dos leyendo el serial a la vez.
+
+Comportamiento con instalación recomendada (sudoers con systemctl, ver sección 5):
+- Al pulsar **Trigger** (pistoleo), la app intenta `sudo -n systemctl stop
+  rfid-hid-gatt` si detecta el mismo puerto; el usuario final no hace nada.
+- Al entrar en **Modo Lector Bluetooth**, la app **cierra el lector en la GUI**
+  (suelta el USB) para que el servicio pueda leer RFID; luego intenta `start`
+  si antes había parado el servicio por inventario.
+
+Si no configuraste sudo para systemctl: la app muestra un aviso con los pasos
+manuales (scripts `pi_ble_hid/scripts/*.sh` o comandos `systemctl`).
+
+Alternativas para equipos sin auto-stop: comentar `RFID_PORT` en el default
+(solo GATT sin lector en el servicio) o parar el servicio a mano antes de
+inventario.
 
 
 6) Checklist de solución de problemas (rápida)

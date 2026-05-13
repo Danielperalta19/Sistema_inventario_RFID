@@ -13,6 +13,7 @@ from tkinter import ttk
 import json
 import datetime
 import random
+import time
 
 from rfid_inventory.app import Escaner
 from rfid_inventory.app.inventory_presenter import construir_filas_resultado
@@ -104,6 +105,8 @@ class AplicacionInventario(tk.Tk):
         self._forzar_sim_proximidad = bool(self._configuracion.funciones.forzar_simulacion_proximidad)
         self._proximidad_activa = False
         self._tarea_ui_proximidad = None
+        self._gatt_detenido_automaticamente_para_inventario = False
+        self._advertido_fallo_sudo_gatt = False
 
         self._inicializar_estilos()
 
@@ -145,6 +148,14 @@ class AplicacionInventario(tk.Tk):
         Se ejecuta en background para no congelar la UI.
         Requiere sudoers NOPASSWD para el usuario (ej. `user`).
         """
+        self._cerrar_lector_y_parar_escaneo_para_hid()
+        try:
+            self._proximidad_detener()
+        except Exception:
+            pass
+        if os.name == "posix":
+            time.sleep(0.35)
+        self._intentar_reanudar_gatt_si_lo_pausamos()
         # Entra a la pantalla sí o sí (aunque estemos en Windows / sin BT).
         self._mostrar_marco("modo_hid")
 
@@ -211,6 +222,134 @@ class AplicacionInventario(tk.Tk):
         except Exception:
             pass
         return ""
+
+    def _normalizar_texto_puerto_serial(self, puerto: str) -> str:
+        p = (puerto or "").strip()
+        if not p:
+            return ""
+        pl = p.lower()
+        if pl.startswith("/dev/ttyusb"):
+            return "/dev/ttyUSB" + p[len("/dev/ttyusb") :]
+        if pl.startswith("/dev/ttyacm"):
+            return "/dev/ttyACM" + p[len("/dev/ttyacm") :]
+        return p
+
+    def _rfid_port_en_default_hid_gatt(self) -> str | None:
+        ruta = "/etc/default/rfid-hid-gatt"
+        if not os.path.isfile(ruta):
+            return None
+        try:
+            with open(ruta, "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    line = raw.split("#", 1)[0].strip()
+                    if line.upper().startswith("RFID_PORT="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        return val if val else None
+        except OSError:
+            return None
+        return None
+
+    def _servicio_rfid_hid_gatt_activo(self) -> bool:
+        if os.name != "posix":
+            return False
+        systemctl = shutil.which("systemctl")
+        if not systemctl:
+            return False
+        try:
+            r = subprocess.run(
+                [systemctl, "is-active", "rfid-hid-gatt.service"],
+                capture_output=True,
+                text=True,
+                timeout=4,
+            )
+            return r.returncode == 0 and (r.stdout or "").strip() == "active"
+        except Exception:
+            return False
+
+    def _mismo_dispositivo_serial(self, a: str, b: str) -> bool:
+        if not a or not b:
+            return False
+        ca = self._normalizar_texto_puerto_serial(a)
+        cb = self._normalizar_texto_puerto_serial(b)
+        if ca == cb:
+            return True
+        try:
+            return os.path.exists(ca) and os.path.exists(cb) and os.path.samefile(ca, cb)
+        except OSError:
+            try:
+                return os.path.realpath(ca) == os.path.realpath(cb)
+            except OSError:
+                return False
+
+    def _hay_conflicto_hid_gatt_puerto(self) -> bool:
+        """True si rfid-hid-gatt está activo y RFID_PORT apunta al mismo dispositivo que la GUI."""
+        if not self._servicio_rfid_hid_gatt_activo():
+            return False
+        puerto_gui = self._normalizar_texto_puerto_serial(self.var_puerto_serial.get())
+        def_port = self._rfid_port_en_default_hid_gatt()
+        if not def_port:
+            return False
+        return self._mismo_dispositivo_serial(puerto_gui, def_port)
+
+    def _sudo_systemctl_gatt(self, accion: str) -> bool:
+        """accion: 'stop' o 'start'. Requiere sudoers NOPASSWD para systemctl."""
+        if os.name != "posix":
+            return False
+        systemctl = shutil.which("systemctl") or "/usr/bin/systemctl"
+        try:
+            r = subprocess.run(
+                ["sudo", "-n", systemctl, accion, "rfid-hid-gatt.service"],
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _asegurar_puerto_sin_servicio_gatt_conflicto(self) -> None:
+        """Detiene rfid-hid-gatt sin pedir contraseña si está configurado sudo -n (instalación típica)."""
+        if not self._hay_conflicto_hid_gatt_puerto():
+            return
+        if self._sudo_systemctl_gatt("stop"):
+            self._gatt_detenido_automaticamente_para_inventario = True
+            time.sleep(0.25)
+            return
+        if self._advertido_fallo_sudo_gatt:
+            return
+        self._advertido_fallo_sudo_gatt = True
+        messagebox.showwarning(
+            "Puerto serial compartido",
+            "El servicio «rfid-hid-gatt» usa el mismo puerto que el inventario.\n\n"
+            "No pude detenerlo solo (hace falta permitir systemctl sin contraseña).\n"
+            "En la Pi, con visudo, agregá una línea como (cambiá `user` por tu usuario):\n\n"
+            "  user ALL=(root) NOPASSWD: /usr/bin/systemctl stop rfid-hid-gatt.service, "
+            "/usr/bin/systemctl start rfid-hid-gatt.service\n\n"
+            "O detené el servicio a mano antes de pistoleo:\n"
+            "  sudo systemctl stop rfid-hid-gatt",
+        )
+
+    def _intentar_reanudar_gatt_si_lo_pausamos(self) -> None:
+        """Al volver al modo Bluetooth, reactiva el servicio si esta app lo había parado."""
+        if not self._gatt_detenido_automaticamente_para_inventario:
+            return
+        if self._sudo_systemctl_gatt("start"):
+            self._gatt_detenido_automaticamente_para_inventario = False
+
+    def _cerrar_lector_y_parar_escaneo_para_hid(self) -> None:
+        """Libera el serial en esta app: rfid-hid-gatt debe poder leer el RFID y mandar teclas al HID."""
+        self._cancelar_inicio_pistoleo_pendiente()
+        try:
+            self._escaner.reanudar()
+            self._escaner.detener()
+        except Exception:
+            pass
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        try:
+            self._lector.cerrar()
+        except Exception:
+            pass
 
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
@@ -1070,6 +1209,14 @@ class AplicacionInventario(tk.Tk):
             wraplength=440,
             justify="left",
         ).pack(anchor="w", padx=12, pady=2)
+        tk.Label(
+            self._marco_hid,
+            text="Para inventario otra vez: Menú → Inventario y «Conectar lector» (aquí se suelta el puerto para el HID).",
+            font=("", 8),
+            fg="#444",
+            wraplength=440,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(6, 2))
 
     def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
@@ -1138,6 +1285,7 @@ class AplicacionInventario(tk.Tk):
         """Aquí sí arranca el escaneo continuo (simulación de pistoleo)."""
         if self._escaner.esta_en_ejecucion():
             return
+        self._asegurar_puerto_sin_servicio_gatt_conflicto()
         self._cancelar_inicio_pistoleo_pendiente()
         self._escaner.reiniciar()
         self._lineas_log_escaneo = []
