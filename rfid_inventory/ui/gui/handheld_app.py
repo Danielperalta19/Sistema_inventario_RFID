@@ -145,19 +145,44 @@ class AplicacionInventario(tk.Tk):
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
 
-        La pantalla HID se muestra de inmediato; el cierre del serial y el
-        resto no deben bloquear minutos (cerrar el puerto antes de join del escáner).
+        La UI cambia al instante. El cierre del serial (puede tardar en el driver
+        USB) y el ``systemctl start`` van en hilos aparte para no congelar Tkinter.
         Requiere sudoers NOPASSWD para el usuario (ej. `user`) en btmgmt.
         """
         self._mostrar_marco("modo_hid")
-        self._cerrar_lector_y_parar_escaneo_para_hid()
+        threading.Thread(target=self._hid_hilo_cerrar_serial_y_continuar, daemon=True).start()
+
+    def _hid_hilo_cerrar_serial_y_continuar(self) -> None:
+        """Cierra el lector fuera del hilo de Tk: ``close()`` del USB a veces bloquea mucho tiempo."""
+        try:
+            self._lector.cerrar()
+        except Exception:
+            pass
+        try:
+            self.after(0, self._hid_en_main_despues_cerrar_serial)
+        except Exception:
+            pass
+
+    def _hid_en_main_despues_cerrar_serial(self) -> None:
+        """Tras soltar el USB: detiene escáner/temporizador en el hilo de la UI."""
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        try:
+            self._escaner.reanudar()
+            self._escaner.detener()
+        except Exception:
+            pass
         try:
             self._proximidad_detener()
         except Exception:
             pass
-        self._intentar_reanudar_gatt_si_lo_pausamos()
 
-        # Solo intentamos ejecutar btmgmt en Linux.
+        def hilo_systemctl_start():
+            self._intentar_reanudar_gatt_si_lo_pausamos()
+
+        threading.Thread(target=hilo_systemctl_start, daemon=True).start()
+
         if os.name != "posix":
             return
 
@@ -299,7 +324,7 @@ class AplicacionInventario(tk.Tk):
                 ["sudo", "-n", systemctl, accion, "rfid-hid-gatt.service"],
                 capture_output=True,
                 text=True,
-                timeout=45,
+                timeout=22,
             )
             return r.returncode == 0
         except Exception:
@@ -333,25 +358,6 @@ class AplicacionInventario(tk.Tk):
             return
         if self._sudo_systemctl_gatt("start"):
             self._gatt_detenido_automaticamente_para_inventario = False
-
-    def _cerrar_lector_y_parar_escaneo_para_hid(self) -> None:
-        """Libera el serial en esta app: rfid-hid-gatt debe poder leer el RFID y mandar teclas al HID.
-
-        Cierra el lector *antes* de hacer join del hilo del escáner: si no, el hilo puede seguir
-        bloqueado en read() y el join espera demasiado.
-        """
-        self._cancelar_inicio_pistoleo_pendiente()
-        self._detener_temporizador_escaneo()
-        self._ajustar_controles_escaneo_activo(False)
-        try:
-            self._lector.cerrar()
-        except Exception:
-            pass
-        try:
-            self._escaner.reanudar()
-            self._escaner.detener()
-        except Exception:
-            pass
 
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
