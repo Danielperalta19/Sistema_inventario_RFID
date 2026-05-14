@@ -8,10 +8,16 @@ lo más posible el panel (Wi‑Fi, Bluetooth, menú) para el usuario final.
 ----------------------
 - Raspberry Pi OS **with desktop** (recomendado: sesión **X11** si usás teclado
   en pantalla del sistema u Onboard).
-- Python 3 y dependencias del proyecto:
+- Python 3 y dependencias: en Pi OS Bookworm el sistema bloquea
+  ``pip install`` global (PEP 668 / "externally-managed-environment").
+  Usá siempre un venv en la raíz del repo (``launch-handheld.sh`` lo detecta):
+
+    sudo apt-get install -y python3-venv python3-full
     cd /ruta/al/Sistema_inventario_RFID
-    python3 -m pip install -r requirements.txt
-  (Opcional: crear .venv en la raíz del repo; launch-handheld.sh lo usa si existe.)
+    python3 -m venv .venv
+    .venv/bin/pip install -r requirements.txt
+
+  No uses ``--break-system-packages`` salvo que sepas el riesgo.
 
 2) Probar a mano
 ----------------
@@ -68,3 +74,9 @@ Control Centre → Display: teclado en pantalla del sistema según tactil.
 ------------------------------
 - RFID_REPO_ROOT   Raíz del repo si el script no está en la ubicación estándar.
 - RFID_PYTHON      Intérprete Python (por defecto python3 o .venv/bin/python).
+
+7) Teclado en pantalla del sistema
+---------------------------------
+En Linux, ``--kiosk`` usa ventana maximizada (no el modo fullscreen EWMH) para
+que el teclado virtual del sistema pueda aparecer encima de la app al escribir
+en un campo.

@@ -72,10 +72,7 @@ class AplicacionInventario(tk.Tk):
         self.geometry("480x320")
         self.minsize(480, 320)
         if self._modo_kiosk:
-            try:
-                self.attributes("-fullscreen", True)
-            except tk.TclError:
-                pass
+            self._aplicar_modo_kiosk_pantalla()
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -148,6 +145,34 @@ class AplicacionInventario(tk.Tk):
         self._mostrar_marco("inicio")
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
+
+    def _aplicar_modo_kiosk_pantalla(self) -> None:
+        """Llena la pantalla sin el atom EWMH fullscreen en Linux.
+
+        Con ``attributes('-fullscreen', True)`` el teclado en pantalla del sistema
+        suele dibujarse detrás de la app; maximizar evita esa capa.
+        """
+        try:
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+        if os.name == "posix":
+            try:
+                sw = max(int(self.winfo_screenwidth()), 480)
+                sh = max(int(self.winfo_screenheight()), 320)
+                self.geometry(f"{sw}x{sh}+0+0")
+                self.minsize(sw, sh)
+                try:
+                    self.state("zoomed")
+                except tk.TclError:
+                    pass
+                return
+            except tk.TclError:
+                pass
+        try:
+            self.attributes("-fullscreen", True)
+        except tk.TclError:
+            pass
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
