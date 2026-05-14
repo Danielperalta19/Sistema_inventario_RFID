@@ -75,8 +75,22 @@ Control Centre → Display: teclado en pantalla del sistema según tactil.
 - RFID_REPO_ROOT   Raíz del repo si el script no está en la ubicación estándar.
 - RFID_PYTHON      Intérprete Python (por defecto python3 o .venv/bin/python).
 
-7) Teclado en pantalla del sistema
----------------------------------
-En Linux, ``--kiosk`` usa ventana maximizada (no el modo fullscreen EWMH) para
-que el teclado virtual del sistema pueda aparecer encima de la app al escribir
-en un campo.
+7) Teclado en pantalla y ventana kiosco (Linux)
+-----------------------------------------------
+En ``--kiosk`` la ventana va **sin marco del gestor** (sin minimizar/cerrar en
+la barra de título) y ocupa todo el tamaño de pantalla que reporta el sistema.
+Así suele comportarse mejor con el teclado virtual que el fullscreen EWMH.
+
+- **Panel superior (Wi‑Fi, reloj):** no lo quita la app; desactivá
+  ``@lxpanel-pi`` (punto 4) para que no quede la “barrita” encima.
+- **Traer el teclado al frente:** instalá herramientas y, al enfocar un
+  ``Entry``/``Text``, la app intenta ``xdotool`` contra ventanas típicas
+  (Onboard, matchbox-keyboard, squeekboard, wf-osk):
+
+      sudo apt-get install -y xdotool
+
+  Si el nombre de ventana de tu teclado es otro, habría que ampliar la lista
+  en código o usar teclado embebido en la app más adelante.
+
+- **Cerrar la app** sin botón de cerrar: desde otra sesión/SSH:
+  ``pkill -f handheld_app`` o mantenimiento con teclado físico (atajos del WM).

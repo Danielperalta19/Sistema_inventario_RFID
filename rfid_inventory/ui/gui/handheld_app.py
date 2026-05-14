@@ -145,12 +145,18 @@ class AplicacionInventario(tk.Tk):
         self._mostrar_marco("inicio")
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
+        if self._modo_kiosk:
+            self._kiosk_bind_elevar_teclado_en_focos_texto()
 
     def _aplicar_modo_kiosk_pantalla(self) -> None:
-        """Llena la pantalla sin el atom EWMH fullscreen en Linux.
+        """Kiosco en Linux: sin decoración de ventana y a pantalla completa (no EWMH fullscreen).
 
-        Con ``attributes('-fullscreen', True)`` el teclado en pantalla del sistema
-        suele dibujarse detrás de la app; maximizar evita esa capa.
+        ``-fullscreen`` de Tk suele dejar el teclado del sistema detrás; ``zoomed``
+        deja barra del gestor y botón minimizar. Sin decoración (overrideredirect)
+        cubre el área útil; conviene desactivar el panel del escritorio (lxpanel).
+
+        Opcional: ``sudo apt install xdotool`` para intentar traer el teclado
+        virtual al frente al enfocar un campo (ver ``_kiosk_elevar_teclado_xdotool``).
         """
         try:
             self.update_idletasks()
@@ -160,12 +166,11 @@ class AplicacionInventario(tk.Tk):
             try:
                 sw = max(int(self.winfo_screenwidth()), 480)
                 sh = max(int(self.winfo_screenheight()), 320)
-                self.geometry(f"{sw}x{sh}+0+0")
+                self.resizable(False, False)
                 self.minsize(sw, sh)
-                try:
-                    self.state("zoomed")
-                except tk.TclError:
-                    pass
+                self.maxsize(sw, sh)
+                self.overrideredirect(True)
+                self.geometry(f"{sw}x{sh}+0+0")
                 return
             except tk.TclError:
                 pass
@@ -173,6 +178,71 @@ class AplicacionInventario(tk.Tk):
             self.attributes("-fullscreen", True)
         except tk.TclError:
             pass
+
+    def _kiosk_bind_elevar_teclado_en_focos_texto(self) -> None:
+        if os.name != "posix" or not self._modo_kiosk:
+            return
+        self._kiosk_tarea_elevar_teclado = None
+
+        def en_focus(_event=None):
+            w = self.focus_get()
+            if w is None:
+                return
+            wc = w.winfo_class()
+            if wc not in ("Entry", "Text", "TEntry"):
+                return
+            if self._kiosk_tarea_elevar_teclado is not None:
+                try:
+                    self.after_cancel(self._kiosk_tarea_elevar_teclado)
+                except Exception:
+                    pass
+            self._kiosk_tarea_elevar_teclado = self.after(280, self._kiosk_elevar_teclado_xdotool)
+
+        self.bind_all("<FocusIn>", en_focus, add="+")
+
+    def _kiosk_elevar_teclado_xdotool(self) -> None:
+        self._kiosk_tarea_elevar_teclado = None
+        xdotool = shutil.which("xdotool")
+        if not xdotool:
+            return
+        patrones = [
+            ("classname", "Onboard"),
+            ("class", "Onboard"),
+            ("classname", "onboard"),
+            ("name", "Onboard"),
+            ("classname", "matchbox-keyboard"),
+            ("classname", "Matchbox-keyboard"),
+            ("classname", "squeekboard"),
+            ("classname", "Squeekboard"),
+            ("class", "wf-osk"),
+        ]
+        for onlyvisible in (True, False):
+            for kind, name in patrones:
+                try:
+                    cmd = [xdotool, "search"]
+                    if onlyvisible:
+                        cmd.append("--onlyvisible")
+                    cmd.extend([f"--{kind}", name])
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+                    if r.returncode != 0 or not (r.stdout or "").strip():
+                        continue
+                    for wid in (r.stdout or "").strip().splitlines():
+                        wid = wid.strip()
+                        if not wid:
+                            continue
+                        subprocess.run(
+                            [xdotool, "windowactivate", wid],
+                            capture_output=True,
+                            timeout=2,
+                        )
+                        subprocess.run(
+                            [xdotool, "windowraise", wid],
+                            capture_output=True,
+                            timeout=2,
+                        )
+                    return
+                except Exception:
+                    continue
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
