@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Inventario RFID
+Comment=Inicia la app en pantalla completa (modo kiosco)
+# IMPORTANTE: ajustá la ruta Exec a donde tengas el repo en la Pi (o usá un symlink estable en /opt).
+Exec=/REEMPLAZAR_RUTA_AL_REPO/deploy/raspberry-pi-recortado/launch-handheld.sh
+Icon=applications-office
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

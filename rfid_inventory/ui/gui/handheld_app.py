@@ -3,6 +3,7 @@
 Pantalla de diseño: 480×320 (por ejemplo Waveshare en Raspberry Pi).
 """
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -64,11 +65,17 @@ def _texto_ubicacion(edificio, sala):
 class AplicacionInventario(tk.Tk):
     _MAX_LINEAS_LOG_ESCANEO = 3
 
-    def __init__(self):
+    def __init__(self, *, kiosk: bool = False):
         super().__init__()
+        self._modo_kiosk = bool(kiosk)
         self.title("Inventario RFID")
         self.geometry("480x320")
         self.minsize(480, 320)
+        if self._modo_kiosk:
+            try:
+                self.attributes("-fullscreen", True)
+            except tk.TclError:
+                pass
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -654,7 +661,7 @@ class AplicacionInventario(tk.Tk):
         if rooms:
             self.var_sala.set(rooms[0])
         self._actualizar_pista_ubicacion()
-
+        
     def _construir_escaneo(self):
         self._marco_escaneo = tk.Frame(self.contenedor)
 
@@ -1634,8 +1641,15 @@ class AplicacionInventario(tk.Tk):
             self.destroy()
 
 
-def main():
-    AplicacionInventario().mainloop()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Inventario RFID (interfaz táctil / lector).")
+    parser.add_argument(
+        "--kiosk",
+        action="store_true",
+        help="Pantalla completa (despliegue en Raspberry Pi con escritorio recortado).",
+    )
+    args = parser.parse_args(argv)
+    AplicacionInventario(kiosk=args.kiosk).mainloop()
     return 0
 
 

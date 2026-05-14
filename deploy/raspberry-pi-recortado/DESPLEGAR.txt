@@ -1,0 +1,70 @@
+Despliegue: Raspberry Pi OS con escritorio recortado (kiosco suave)
+===================================================================
+
+Objetivo: al iniciar sesión, abrir solo la app en pantalla completa y ocultar
+lo más posible el panel (Wi‑Fi, Bluetooth, menú) para el usuario final.
+
+1) Requisitos en la Pi
+----------------------
+- Raspberry Pi OS **with desktop** (recomendado: sesión **X11** si usás teclado
+  en pantalla del sistema u Onboard).
+- Python 3 y dependencias del proyecto:
+    cd /ruta/al/Sistema_inventario_RFID
+    python3 -m pip install -r requirements.txt
+  (Opcional: crear .venv en la raíz del repo; launch-handheld.sh lo usa si existe.)
+
+2) Probar a mano
+----------------
+    chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+    ./deploy/raspberry-pi-recortado/launch-handheld.sh
+
+O sin script:
+    python3 -m rfid_inventory.ui.gui.handheld_app --kiosk
+
+Salir de pantalla completa (según gestor de ventanas): a veces Alt+F4 o
+combinación del escritorio; para mantenimiento conviene tener teclado USB
+ocasional o otro usuario admin.
+
+3) Autostart al entrar al escritorio
+------------------------------------
+a) Editá el archivo:
+    deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop
+   y reemplazá /REEMPLAZAR_RUTA_AL_REPO por la ruta real (ej. /home/pi/Sistema_inventario_RFID).
+
+b) Copiá el .desktop a la carpeta de autostart del usuario que usará el lector:
+    mkdir -p ~/.config/autostart
+    cp deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop \
+       ~/.config/autostart/
+
+c) Hacé ejecutable el script (si no lo está):
+    chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+
+Cerrá sesión y volvé a entrar: debería abrirse la app en pantalla completa.
+
+4) Recortar el escritorio (menos iconos de red / BT / menú)
+-----------------------------------------------------------
+La idea es **no cargar el panel** o usar un usuario sin acceso a ajustes.
+
+En muchas imágenes con **LXDE-pi** y **X11**, el panel se lanza desde:
+    ~/.config/lxsession/LXDE-pi/autostart
+Buscá una línea como:
+    @lxpanel-pi
+y comentala con # al inicio. Guardá, cerrá sesión y entrá de nuevo.
+
+Si tu versión no tiene ese archivo (p. ej. otro compositor), usá la
+documentación de tu imagen para desactivar el panel o los applets de red.
+
+Control Centre → Display: teclado en pantalla del sistema según tactil.
+
+5) Usuario final sin privilegios
+--------------------------------
+- Creá un usuario dedicado (ej. rfid) sin grupo sudo.
+- Instalá/copiad el repo con permisos de ese usuario.
+- Las tareas que requieran sudo (systemctl / btmgmt) siguen necesitando
+  sudoers NOPASSWD como ya documentaste para operación; el usuario final
+  no debería poder abrir terminal con privilegios.
+
+6) Variables útiles (opcional)
+------------------------------
+- RFID_REPO_ROOT   Raíz del repo si el script no está en la ubicación estándar.
+- RFID_PYTHON      Intérprete Python (por defecto python3 o .venv/bin/python).
