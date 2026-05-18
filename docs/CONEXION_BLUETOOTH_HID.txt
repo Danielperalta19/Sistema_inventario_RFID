@@ -1,0 +1,44 @@
+Emparejar Pi (HID BLE) con Windows
+
+Orden: preparar la Pi, arrancar el servidor HID, emparejar en Windows. Si la Pi pide confirmación, usa monitor o acceso remoto para aceptar.
+
+1. En la Pi
+
+  sudo systemctl restart bluetooth
+  (espera unos segundos)
+
+  sudo bluetoothctl power on
+  sudo bluetoothctl pairable on
+  sudo bluetoothctl discoverable on
+
+  sudo btmgmt -i hci0 connectable on
+  sudo btmgmt -i hci0 advertising on
+
+2. Servidor HID
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  export RFID_PORT=/dev/ttyUSB0
+  export RFID_BAUD=115200
+  sudo -E python3 gatt_server_rfid.py
+
+  Deja la terminal abierta. Debe aparecer "GATT application registered".
+
+3. En Windows
+
+  Abre "Bluetooth LE Explorer" (Microsoft Store), busca la Pi y pulsa Pair.
+
+4. Confirmación en la Pi
+
+  Si pide código o aceptar, hazlo en la pantalla de la Pi (VNC, Pi Connect, etc.).
+
+5. Probar
+
+  Bloc de notas, o la página de prueba en rfid_inventory/pi_ble_hid/web/scanner_inventario_prueba.html
+
+Notas
+
+  A veces Configuración de Windows dice que no responde, pero LE Explorer sí conecta. Empareja ahí y prueba en Bloc de notas.
+
+  Si falla después: olvida el dispositivo en Windows; en la Pi puedes sudo bluetoothctl remove <MAC>; repite desde el paso 1.
+
+  Clase teclado (opcional): sudo hciconfig hci0 class 0x000540 (ver PI_BLE_HID.txt).

@@ -1,0 +1,1 @@
+Referencia movida a: docs/gattServer_upstream.py (ver docs/LEEME.txt)

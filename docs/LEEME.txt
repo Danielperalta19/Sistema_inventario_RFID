@@ -1,0 +1,20 @@
+Documentación — Inventario RFID
+
+Todo está en esta carpeta (docs/).
+
+Índice
+
+  LEEME.txt — Este archivo.
+  DESPLIEGUE_KIOSCO_PI.txt — App en la Pi: venv, kiosco, panel, teclado.
+  PI_BLE_HID.txt — Resumen Bluetooth HID + RFID.
+  CONEXION_BLUETOOTH_HID.txt — Emparejar Pi con Windows.
+  AUTOSTART_HID.txt — Servicios systemd.
+  GUIA_MODO_BLUETOOTH_HID_RPI.txt — Modo teclado desde la GUI y sudoers.
+  BITACORA.txt — Notas técnicas del módulo BLE.
+  gattServer_upstream.py — Referencia HeadHodge (no es producción).
+
+Scripts de arranque: deploy/raspberry-pi-recortado/
+
+Código: rfid_inventory/ui/gui/handheld_app.py, rfid_inventory/pi_ble_hid/
+
+Resumen del proyecto: README.md en la raíz.

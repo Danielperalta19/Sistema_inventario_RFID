@@ -19,6 +19,8 @@ python -m rfid_inventory.ui.gui.handheld_app
 
 Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). La librería `rfid_r200` va **incluida** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`).
 
+**Documentación operativa (Pi, Bluetooth, kiosco):** carpeta [`docs/`](docs/LEEME.txt) — empezar por `docs/DESPLIEGUE_KIOSCO_PI.txt` para despliegue en el lector.
+
 ---
 
 ## Flujo de la GUI (pantallas)
@@ -60,9 +62,11 @@ No hay modo CLI en este repo (solo la GUI anterior se eliminó a propósito).
 
 | Qué | Dónde |
 | --- | --- |
-| Emparejamiento, `bluetoothctl`, `btmgmt`, systemd | `rfid_inventory/pi_ble_hid/docs/` (`CONEXION_BLUETOOTH_HID.txt`, `AUTOSTART_HID.txt`, `GUIA_MODO_BLUETOOTH_HID_RPI.txt`, `PI_BLE_HID.txt`, `BITACORA.txt`) |
-| Servidor GATT / teclas | `rfid_inventory/pi_ble_hid/gatt_server_rfid.py`, `hid_keys.py`, unidades en `rfid_inventory/pi_ble_hid/systemd/` |
-| Referencia upstream (no es el servicio en producción) | `rfid_inventory/pi_ble_hid/docs/gattServer_upstream.py` |
+| Documentación (Pi, Bluetooth, kiosco) | **`docs/`** — ver `docs/LEEME.txt` (`DESPLIEGUE_KIOSCO_PI.txt`, `CONEXION_BLUETOOTH_HID.txt`, `AUTOSTART_HID.txt`, `GUIA_MODO_BLUETOOTH_HID_RPI.txt`, …) |
+| Autostart GUI en Pi | `deploy/raspberry-pi-recortado/` (`launch-handheld.sh`, `.desktop`) |
+| Emparejamiento, `bluetoothctl`, `btmgmt`, systemd | `docs/` + unidades en `rfid_inventory/pi_ble_hid/systemd/` |
+| Servidor GATT / teclas | `rfid_inventory/pi_ble_hid/gatt_server_rfid.py`, `hid_keys.py` |
+| Referencia upstream (no es el servicio en producción) | `docs/gattServer_upstream.py` |
 
 ### Firmware emulador Arduino
 
@@ -138,7 +142,8 @@ En PowerShell también: `$env:RFID_WRITE_USE_HARDWARE="1"`. Con `0` o `false` fu
 - `rfid_inventory/ui/gui/handheld_app.py` — toda la navegación y widgets.
 - `rfid_inventory/ui/ui_formatters.py` — textos “Activo” vs EPC en tablas.
 - `rfid_inventory/drivers/r200_driver.py` — serial y operaciones R200 (`LectorR200`, `programar_epc12_en_etiqueta` cuando haya hardware compatible).
-- `rfid_inventory/pi_ble_hid/web/` — catálogo y prueba web; `pi_ble_hid/docs/` — documentación de Bluetooth y despliegue en Pi.
+- `rfid_inventory/pi_ble_hid/web/` — catálogo y prueba web.
+- **`docs/`** — toda la documentación (Bluetooth HID, despliegue kiosco en Pi, bitácora).
 
 ---
 

@@ -1,0 +1,69 @@
+Despliegue en Raspberry Pi (kiosco)
+
+Objetivo: al iniciar sesión solo se abre la app a pantalla completa, sin barra de cerrar en la ventana, y sin el panel del sistema (Wi‑Fi, reloj, menú).
+
+Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no deja pip global).
+
+1. Entorno virtual
+
+  sudo apt-get install -y python3-venv python3-full
+  cd /ruta/al/Sistema_inventario_RFID
+  python3 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+
+  Si tu venv tiene otro nombre: ln -sfn venv .venv
+  O export RFID_PYTHON=/ruta/al/repo/venv/bin/python
+
+  launch-handheld.sh usa .venv/bin/python si existe.
+
+2. Probar
+
+  chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+  ./deploy/raspberry-pi-recortado/launch-handheld.sh
+
+  O: .venv/bin/python -m rfid_inventory.ui.gui.handheld_app --kiosk
+
+  En Linux, --kiosk quita el marco de la ventana y llena la pantalla sin usar fullscreen de Tk (así el teclado virtual del sistema suele verse encima). No es lo mismo que maximizar con el gestor (eso deja barra del SO y minimizar).
+
+3. Autostart
+
+  Edita deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop
+  y cambia /REEMPLAZAR_RUTA_AL_REPO por tu ruta real.
+
+  mkdir -p ~/.config/autostart
+  cp deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop ~/.config/autostart/
+  chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+
+  Cierra sesión y entra de nuevo.
+
+4. Quitar la barra de la Pi
+
+  La app no puede ocultar el panel superior; hay que desactivarlo.
+
+  nano ~/.config/lxsession/LXDE-pi/autostart
+
+  Comenta la línea @lxpanel-pi (pon # al inicio). Guarda y vuelve a iniciar sesión.
+
+  Si tu imagen usa otro panel, revisa la doc de tu versión de Pi OS.
+
+5. Teclado en pantalla
+
+  Control Centre → Display → teclado en pantalla (por ejemplo si hay táctil).
+  Opcional: sudo apt-get install -y xdotool (la app intenta traer el teclado al frente al enfocar un campo).
+
+6. Bluetooth
+
+  Los diálogos del sistema (emparejar) suelen salir encima de la app. Ver CONEXION_BLUETOOTH_HID.txt y GUIA_MODO_BLUETOOTH_HID_RPI.txt.
+
+7. Variables opcionales
+
+  RFID_REPO_ROOT — raíz del repo si no es la predeterminada.
+  RFID_PYTHON — python del venv si no se llama .venv.
+
+8. Mantenimiento
+
+  Sin botón cerrar: pkill -f handheld_app (SSH) o teclado USB con atajos del escritorio.
+
+9. Usuario final
+
+  Usuario sin sudo para el día a día. systemctl/btmgmt sin contraseña: ver GUIA_MODO_BLUETOOTH_HID_RPI.txt (sudoers).

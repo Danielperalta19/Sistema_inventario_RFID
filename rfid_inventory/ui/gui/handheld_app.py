@@ -447,10 +447,10 @@ class AplicacionInventario(tk.Tk):
             "Puerto serial compartido",
             "El servicio «rfid-hid-gatt» usa el mismo puerto que el inventario.\n\n"
             "No pude detenerlo solo (hace falta permitir systemctl sin contraseña).\n"
-            "En la Pi, con visudo, agregá una línea como (cambiá `user` por tu usuario):\n\n"
+            "En la Pi, con visudo, agrega una línea como (cambia `user` por tu usuario):\n\n"
             "  user ALL=(root) NOPASSWD: /usr/bin/systemctl stop rfid-hid-gatt.service, "
             "/usr/bin/systemctl start rfid-hid-gatt.service\n\n"
-            "O detené el servicio a mano antes de pistoleo:\n"
+            "O detén el servicio a mano antes de pistoleo:\n"
             "  sudo systemctl stop rfid-hid-gatt",
         )
 
