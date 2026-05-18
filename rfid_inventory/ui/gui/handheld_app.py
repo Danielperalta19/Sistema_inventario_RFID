@@ -3,7 +3,6 @@
 Pantalla de diseño: 480×320 (por ejemplo Waveshare en Raspberry Pi).
 """
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -30,6 +29,7 @@ from rfid_inventory.catalog.catalog_loader import (
 )
 from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo
 from rfid_inventory.drivers import LectorR200
+from rfid_inventory.ui.gui.teclado_virtual import TecladoVirtual
 from rfid_inventory.ui.ui_formatters import (
     codigo_activo_o_guion_desde_epc,
     estado_escritura_programada,
@@ -65,17 +65,11 @@ def _texto_ubicacion(edificio, sala):
 class AplicacionInventario(tk.Tk):
     _MAX_LINEAS_LOG_ESCANEO = 3
 
-    def __init__(self, *, kiosk: bool = False):
+    def __init__(self):
         super().__init__()
-        self._modo_kiosk = bool(kiosk)
-        self._kiosk_geometria_aplicada = False
         self.title("Inventario RFID")
-        if self._modo_kiosk:
-            # Tamaño real se fija al mostrar la ventana (_aplicar_modo_kiosk_pantalla).
-            self.geometry("480x320")
-        else:
-            self.geometry("480x320")
-            self.minsize(480, 320)
+        self.geometry("480x320")
+        self.minsize(480, 320)
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -114,12 +108,12 @@ class AplicacionInventario(tk.Tk):
         self._tarea_ui_proximidad = None
         self._gatt_detenido_automaticamente_para_inventario = False
         self._advertido_fallo_sudo_gatt = False
-        self._kiosk_pausado_para_sistema = False
 
         self._inicializar_estilos()
 
         self.contenedor = tk.Frame(self)
         self.contenedor.pack(fill="both", expand=True)
+        self._teclado_virtual = TecladoVirtual(self)
 
         self._marco_menu = None
         self._marco_inicio = None
@@ -149,243 +143,7 @@ class AplicacionInventario(tk.Tk):
         self._mostrar_marco("inicio")
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
-        self._teclado_sistema_tarea = None
-        self._teclado_ocultar_tarea = None
-        if os.name == "posix":
-            self._bind_teclado_sistema_en_campos()
-        if self._modo_kiosk:
-            self.after_idle(self._aplicar_modo_kiosk_pantalla)
-
-    def _kiosk_sin_marco_activo(self) -> bool:
-        v = os.environ.get("RFID_KIOSK_BORDERLESS", "0").strip().lower()
-        return v in ("1", "true", "yes", "on")
-
-    def _aplicar_modo_kiosk_pantalla(self) -> None:
-        """Kiosco: pantalla completa sin EWMH fullscreen (mejor con teclado en pantalla).
-
-        Por defecto en Linux NO usa overrideredirect (evita parpadeo en Pi Connect).
-        Para la TFT Waveshare sin marco: export RFID_KIOSK_BORDERLESS=1
-        """
-        if not self._modo_kiosk or self._kiosk_geometria_aplicada:
-            return
-        self._kiosk_geometria_aplicada = True
-        try:
-            self.update_idletasks()
-        except tk.TclError:
-            pass
-        if os.name == "posix":
-            try:
-                sw = max(int(self.winfo_screenwidth()), 480)
-                sh = max(int(self.winfo_screenheight()), 320)
-                self.resizable(True, True)
-                self.minsize(480, 320)
-                if self._kiosk_sin_marco_activo():
-                    self.resizable(False, False)
-                    self.minsize(sw, sh)
-                    self.maxsize(sw, sh)
-                    self.overrideredirect(True)
-                    self.geometry(f"{sw}x{sh}+0+0")
-                else:
-                    try:
-                        self.state("zoomed")
-                    except tk.TclError:
-                        self.geometry(f"{sw}x{sh}+0+0")
-                # No usar lift(): deja la app encima de diálogos Bluetooth y del teclado del SO.
-                return
-            except tk.TclError:
-                pass
-        try:
-            self.attributes("-fullscreen", True)
-        except tk.TclError:
-            pass
-
-    @staticmethod
-    def _widget_es_campo_texto(w) -> bool:
-        if w is None:
-            return False
-        try:
-            return w.winfo_class() in ("Entry", "Text", "TEntry")
-        except tk.TclError:
-            return False
-
-    def _bind_teclado_sistema_en_campos(self) -> None:
-        """Muestra/oculta el teclado de Pi OS al entrar o salir de campos de texto (Tk no usa AT-SPI)."""
-        for clase in ("Entry", "Text", "TEntry"):
-            self.bind_class(clase, "<FocusIn>", self._al_foco_en_campo_texto, add="+")
-            self.bind_class(clase, "<FocusOut>", self._al_foco_fuera_campo_texto, add="+")
-        self.bind_all("<FocusIn>", self._al_focus_in_teclado_sistema, add="+")
-
-    def _al_foco_en_campo_texto(self, _event=None) -> None:
-        self._cancelar_ocultar_teclado_programado()
-        self._programar_mostrar_teclado_sistema()
-
-    def _al_foco_fuera_campo_texto(self, _event=None) -> None:
-        self._cancelar_mostrar_teclado_programado()
-        self._programar_ocultar_teclado_sistema()
-
-    def _al_focus_in_teclado_sistema(self, event) -> None:
-        w = getattr(event, "widget", None)
-        if self._widget_es_campo_texto(w):
-            return
-        try:
-            if w is not None and w.winfo_toplevel() == self:
-                self._cancelar_mostrar_teclado_programado()
-                self._programar_ocultar_teclado_sistema()
-        except tk.TclError:
-            pass
-
-    def _cancelar_mostrar_teclado_programado(self) -> None:
-        if self._teclado_sistema_tarea is not None:
-            try:
-                self.after_cancel(self._teclado_sistema_tarea)
-            except Exception:
-                pass
-            self._teclado_sistema_tarea = None
-
-    def _cancelar_ocultar_teclado_programado(self) -> None:
-        if self._teclado_ocultar_tarea is not None:
-            try:
-                self.after_cancel(self._teclado_ocultar_tarea)
-            except Exception:
-                pass
-            self._teclado_ocultar_tarea = None
-
-    def _programar_mostrar_teclado_sistema(self) -> None:
-        self._cancelar_mostrar_teclado_programado()
-        self._teclado_sistema_tarea = self.after(200, self._mostrar_teclado_sistema)
-
-    def _programar_ocultar_teclado_sistema(self) -> None:
-        self._cancelar_ocultar_teclado_programado()
-        self._teclado_ocultar_tarea = self.after(450, self._ocultar_teclado_si_sin_campo_texto)
-
-    def _ocultar_teclado_si_sin_campo_texto(self) -> None:
-        self._teclado_ocultar_tarea = None
-        if self._widget_es_campo_texto(self.focus_get()):
-            return
-        self._ocultar_teclado_sistema()
-
-    def _mostrar_teclado_sistema(self) -> None:
-        """Teclado integrado de Pi OS (squeekboard vía busctl)."""
-        self._teclado_sistema_tarea = None
-        if os.name != "posix":
-            return
-        busctl = shutil.which("busctl")
-        if busctl:
-            try:
-                subprocess.run(
-                    [
-                        busctl,
-                        "call",
-                        "--user",
-                        "sm.puri.OSK0",
-                        "/sm/puri/OSK0",
-                        "sm.puri.OSK0",
-                        "SetVisible",
-                        "b",
-                        "true",
-                    ],
-                    capture_output=True,
-                    timeout=3,
-                )
-            except Exception:
-                pass
-        self.after(300, self._elevar_ventana_teclado_sistema)
-
-    def _ocultar_teclado_sistema(self) -> None:
-        if os.name != "posix":
-            return
-        busctl = shutil.which("busctl")
-        if busctl:
-            try:
-                subprocess.run(
-                    [
-                        busctl,
-                        "call",
-                        "--user",
-                        "sm.puri.OSK0",
-                        "/sm.puri/OSK0",
-                        "sm.puri.OSK0",
-                        "SetVisible",
-                        "b",
-                        "false",
-                    ],
-                    capture_output=True,
-                    timeout=3,
-                )
-            except Exception:
-                pass
-
-    def _elevar_ventana_teclado_sistema(self) -> None:
-        xdotool = shutil.which("xdotool")
-        if not xdotool:
-            return
-        patrones = [
-            ("class", "wf-osk"),
-            ("classname", "wf-osk"),
-            ("classname", "squeekboard"),
-            ("classname", "Squeekboard"),
-            ("class", "wvkbd"),
-            ("classname", "wvkbd"),
-            ("name", "wvkbd"),
-            ("name", "Screen Keyboard"),
-            ("name", "screen keyboard"),
-            ("name", "Teclado en pantalla"),
-        ]
-        for onlyvisible in (True, False):
-            for kind, name in patrones:
-                try:
-                    cmd = [xdotool, "search"]
-                    if onlyvisible:
-                        cmd.append("--onlyvisible")
-                    cmd.extend([f"--{kind}", name])
-                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
-                    if r.returncode != 0 or not (r.stdout or "").strip():
-                        continue
-                    for wid in (r.stdout or "").strip().splitlines():
-                        wid = wid.strip()
-                        if not wid:
-                            continue
-                        subprocess.run(
-                            [xdotool, "windowactivate", wid],
-                            capture_output=True,
-                            timeout=2,
-                        )
-                        subprocess.run(
-                            [xdotool, "windowraise", wid],
-                            capture_output=True,
-                            timeout=2,
-                        )
-                    return
-                except Exception:
-                    continue
-
-    def _kiosk_pausar_para_dialogos_sistema(self) -> None:
-        """Achica y manda la app al fondo para ver el diálogo de emparejamiento Bluetooth."""
-        if not self._modo_kiosk or self._kiosk_pausado_para_sistema:
-            return
-        self._kiosk_pausado_para_sistema = True
-        try:
-            self.attributes("-topmost", False)
-            self.state("normal")
-            self.geometry("420x260+20+60")
-            self.lower()
-            self.update_idletasks()
-        except tk.TclError:
-            pass
-
-    def _kiosk_restaurar_pantalla(self) -> None:
-        if not self._modo_kiosk:
-            return
-        self._kiosk_pausado_para_sistema = False
-        try:
-            sw = max(int(self.winfo_screenwidth()), 480)
-            sh = max(int(self.winfo_screenheight()), 320)
-            if self._kiosk_sin_marco_activo():
-                self.geometry(f"{sw}x{sh}+0+0")
-            else:
-                self.state("zoomed")
-        except tk.TclError:
-            pass
+        self._teclado_virtual.instalar_en(self)
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
@@ -620,6 +378,7 @@ class AplicacionInventario(tk.Tk):
         style.configure("HandheldBig.TButton", font=("", 12))
 
     def _mostrar_marco(self, nombre_marco):
+        self._teclado_virtual.ocultar(rapido=True)
         for w in self.contenedor.winfo_children():
             w.pack_forget()
         if nombre_marco == "inicio":
@@ -652,15 +411,12 @@ class AplicacionInventario(tk.Tk):
             font=("", 15, "bold"),
         ).pack(pady=(28, 6))
 
-        if not self._modo_kiosk:
-            tk.Label(
-                self._marco_inicio,
-                text="Pantalla 480×320 · Raspberry Pi",
-                font=("", 8),
-                fg="#555",
-            ).pack(pady=(0, 14))
-        else:
-            tk.Frame(self._marco_inicio, height=8).pack()
+        tk.Label(
+            self._marco_inicio,
+            text="Pantalla 480×320 · Raspberry Pi",
+            font=("", 8),
+            fg="#555",
+        ).pack(pady=(0, 14))
 
         ttk.Button(
             self._marco_inicio,
@@ -1473,29 +1229,6 @@ class AplicacionInventario(tk.Tk):
             wraplength=440,
             justify="left",
         ).pack(anchor="w", padx=12, pady=(6, 2))
-        if self._modo_kiosk:
-            tk.Label(
-                self._marco_hid,
-                text="Si no ves el mensaje «Emparejar» en la Pi, usa el botón de abajo.",
-                font=("", 8),
-                fg="#555",
-                wraplength=440,
-                justify="left",
-            ).pack(anchor="w", padx=12, pady=(4, 2))
-            row_hid = tk.Frame(self._marco_hid)
-            row_hid.pack(fill="x", padx=12, pady=(4, 8))
-            ttk.Button(
-                row_hid,
-                text="Bajar app (emparejar)",
-                style="Handheld.TButton",
-                command=self._kiosk_pausar_para_dialogos_sistema,
-            ).pack(side="left", fill="x", expand=True, padx=(0, 4))
-            ttk.Button(
-                row_hid,
-                text="Pantalla completa",
-                style="Handheld.TButton",
-                command=self._kiosk_restaurar_pantalla,
-            ).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
     def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
@@ -1905,15 +1638,8 @@ class AplicacionInventario(tk.Tk):
             self.destroy()
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Inventario RFID (interfaz táctil / lector).")
-    parser.add_argument(
-        "--kiosk",
-        action="store_true",
-        help="Pantalla completa (despliegue en Raspberry Pi con escritorio recortado).",
-    )
-    args = parser.parse_args(argv)
-    AplicacionInventario(kiosk=args.kiosk).mainloop()
+def main() -> int:
+    AplicacionInventario().mainloop()
     return 0
 
 

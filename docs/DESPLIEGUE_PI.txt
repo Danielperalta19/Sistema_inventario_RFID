@@ -1,0 +1,61 @@
+Despliegue en Raspberry Pi
+
+Objetivo: al iniciar sesión se abre la app de inventario (ventana 480×320 o maximizada según el escritorio). Los campos de texto muestran un teclado integrado en la parte inferior de la app.
+
+Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no deja pip global).
+
+1. Entorno virtual
+
+  sudo apt-get install -y python3-venv python3-full
+  cd /ruta/al/Sistema_inventario_RFID
+  python3 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+
+  Si tu venv tiene otro nombre: ln -sfn venv .venv
+  O export RFID_PYTHON=/ruta/al/repo/venv/bin/python
+
+  launch-handheld.sh usa .venv/bin/python si existe.
+
+2. Probar
+
+  chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+  ./deploy/raspberry-pi-recortado/launch-handheld.sh
+
+  O: .venv/bin/python -m rfid_inventory.ui.gui.handheld_app
+
+  Si parpadea o se traba (sobre todo en Pi Connect):
+  - No abras la app dos veces (revisa autostart en ~/.config/autostart/).
+  - Mata instancias viejas: pkill -f handheld_app
+  - El script launch-handheld.sh evita doble instancia (flock).
+
+  Prueba final en la pantalla física de la Pi, no solo por Pi Connect.
+
+3. Autostart
+
+  Edita deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop
+  y cambia /REEMPLAZAR_RUTA_AL_REPO por tu ruta real.
+
+  mkdir -p ~/.config/autostart
+  cp deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop ~/.config/autostart/
+  chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
+
+  Cierra sesión y entra de nuevo.
+
+4. Quitar la barra de la Pi (opcional)
+
+  Si quieres más espacio en la TFT, comenta @lxpanel-pi en:
+
+  nano ~/.config/lxsession/LXDE-pi/autostart
+
+  Guarda y vuelve a iniciar sesión.
+
+5. Teclado en la app
+
+  No hace falta el teclado del sistema (squeekboard). Al tocar un campo Entry o Text
+  aparece el teclado integrado abajo (dígitos, letras, espacio, borrar, cerrar).
+  Al cambiar de pantalla o pulsar Cerrar se oculta.
+
+6. Bluetooth (mensaje «Emparejar» en la Pi)
+
+  Si la ventana tapa el diálogo del sistema, minimiza la app desde el escritorio
+  o usa el panel de Bluetooth de Pi OS antes de entrar al modo teclado desde el menú.

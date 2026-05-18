@@ -19,7 +19,7 @@ python -m rfid_inventory.ui.gui.handheld_app
 
 Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). La librería `rfid_r200` va **incluida** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`).
 
-**Documentación operativa (Pi, Bluetooth, kiosco):** carpeta [`docs/`](docs/LEEME.txt) — empezar por `docs/DESPLIEGUE_KIOSCO_PI.txt` para despliegue en el lector.
+**Documentación operativa (Pi, Bluetooth):** carpeta [`docs/`](docs/LEEME.txt) — empezar por `docs/DESPLIEGUE_PI.txt` para despliegue en el lector.
 
 ---
 
@@ -62,7 +62,7 @@ No hay modo CLI en este repo (solo la GUI anterior se eliminó a propósito).
 
 | Qué | Dónde |
 | --- | --- |
-| Documentación (Pi, Bluetooth, kiosco) | **`docs/`** — ver `docs/LEEME.txt` (`DESPLIEGUE_KIOSCO_PI.txt`, `CONEXION_BLUETOOTH_HID.txt`, `AUTOSTART_HID.txt`, `GUIA_MODO_BLUETOOTH_HID_RPI.txt`, …) |
+| Documentación (Pi, Bluetooth) | **`docs/`** — ver `docs/LEEME.txt` (`DESPLIEGUE_PI.txt`, `CONEXION_BLUETOOTH_HID.txt`, `AUTOSTART_HID.txt`, `GUIA_MODO_BLUETOOTH_HID_RPI.txt`, …) |
 | Autostart GUI en Pi | `deploy/raspberry-pi-recortado/` (`launch-handheld.sh`, `.desktop`) |
 | Emparejamiento, `bluetoothctl`, `btmgmt`, systemd | `docs/` + unidades en `rfid_inventory/pi_ble_hid/systemd/` |
 | Servidor GATT / teclas | `rfid_inventory/pi_ble_hid/gatt_server_rfid.py`, `hid_keys.py` |

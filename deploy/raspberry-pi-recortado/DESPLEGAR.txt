@@ -1,4 +1,4 @@
-Guía de despliegue en la Pi: docs/DESPLIEGUE_KIOSCO_PI.txt
+Guía de despliegue en la Pi: docs/DESPLIEGUE_PI.txt
 Índice: docs/LEEME.txt
 
 Scripts aquí: launch-handheld.sh, com.rfid-inventario.handheld.desktop

@@ -5,7 +5,7 @@ Todo está en esta carpeta (docs/).
 Índice
 
   LEEME.txt — Este archivo.
-  DESPLIEGUE_KIOSCO_PI.txt — App en la Pi: venv, kiosco, panel, teclado.
+  DESPLIEGUE_PI.txt — App en la Pi: venv, autostart, teclado integrado.
   PI_BLE_HID.txt — Resumen Bluetooth HID + RFID.
   CONEXION_BLUETOOTH_HID.txt — Emparejar Pi con Windows.
   AUTOSTART_HID.txt — Servicios systemd.

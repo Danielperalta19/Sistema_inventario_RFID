@@ -2,7 +2,7 @@
 Type=Application
 Version=1.0
 Name=Inventario RFID
-Comment=Inicia la app en pantalla completa (modo kiosco)
+Comment=Inicia la app de inventario RFID
 # IMPORTANTE: ajusta la ruta Exec a donde tengas el repo en la Pi.
 Exec=/REEMPLAZAR_RUTA_AL_REPO/deploy/raspberry-pi-recortado/launch-handheld.sh
 Icon=applications-office

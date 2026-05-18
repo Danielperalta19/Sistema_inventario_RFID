@@ -5,7 +5,7 @@ Bluetooth HID + RFID en la Pi
   CONEXION_BLUETOOTH_HID.txt — Emparejar con Windows.
   AUTOSTART_HID.txt — systemd al encender la Pi.
   GUIA_MODO_BLUETOOTH_HID_RPI.txt — Botón en la GUI, sudoers, puerto serial.
-  DESPLIEGUE_KIOSCO_PI.txt — App en kiosco.
+  DESPLIEGUE_PI.txt — App en la Pi (autostart, teclado integrado).
 
 Archivos en rfid_inventory/pi_ble_hid/
 
