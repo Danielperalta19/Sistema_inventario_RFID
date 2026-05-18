@@ -30,6 +30,9 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
   fullscreen de Tk. La barra superior del SO (Wi‑Fi, reloj) solo se quita
   comentando @lxpanel-pi (paso 4), no con la app sola.
 
+  Probar el kiosco en la pantalla física de la Pi (o HDMI). Pi Connect a veces
+  parpadea o se siente lento; no uses solo el remoto para validar rendimiento.
+
 3. Autostart
 
   Edita deploy/raspberry-pi-recortado/com.rfid-inventario.handheld.desktop
