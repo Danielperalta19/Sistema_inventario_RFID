@@ -61,18 +61,23 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Si tu imagen usa otro panel, revisa la doc de tu versión de Pi OS.
 
-5. Teclado en pantalla (el de Pi OS, no Onboard)
+5. Teclado en pantalla (el de Pi OS)
 
-  Actívalo en Control Centre → Display (por ejemplo si hay táctil).
+  Actívalo en Control Centre → Display.
 
-  Con la app maximizada el teclado del sistema a veces queda detrás. Opciones:
+  Tkinter NO avisa al teclado del sistema al hacer foco (no usa AT-SPI como
+  Chromium o el bloc de notas). Por eso no “sale solo” aunque el campo sí tenga
+  foco. Si abres el teclado a mano y escribes, funciona: el problema no es la app,
+  es que el SO no enlaza auto-mostrar con ventanas Tk.
 
-  a) Toca el campo dos veces; el SO suele mostrar el teclado si detecta táctil.
-  b) sudo apt-get install -y xdotool
-     Al enfocar un campo la app intenta traer al frente la ventana del teclado
-     del sistema (wf-osk / teclado integrado).
-  c) Teclado USB en la Pi para mantenimiento.
-  d) A futuro: teclado dentro de la app si hace falta.
+  La app ahora, al tocar un campo o con el botón Teclado / ⌨:
+  - pide mostrar squeekboard (busctl SetVisible) si aplica en tu Pi OS
+  - o lanza wvkbd-mobintl si no está corriendo
+  - y con xdotool intenta traer esa ventana al frente
+
+  sudo apt-get install -y xdotool
+
+  Si no aparece: usa el botón Teclado en Conectar / Tec en Rastrear y Escribir tag.
 
 6. Bluetooth (mensaje «Emparejar» en la Pi)
 
