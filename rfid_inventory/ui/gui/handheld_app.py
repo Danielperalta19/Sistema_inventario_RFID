@@ -150,8 +150,9 @@ class AplicacionInventario(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
         self._teclado_sistema_tarea = None
+        self._teclado_ocultar_tarea = None
         if os.name == "posix":
-            self._bind_solicitar_teclado_sistema_en_campos()
+            self._bind_teclado_sistema_en_campos()
         if self._modo_kiosk:
             self.after_idle(self._aplicar_modo_kiosk_pantalla)
 
@@ -198,38 +199,73 @@ class AplicacionInventario(tk.Tk):
         except tk.TclError:
             pass
 
-    def _bind_solicitar_teclado_sistema_en_campos(self) -> None:
-        """Tk no avisa al teclado de Pi OS por AT-SPI; hay que pedirlo explícitamente."""
+    @staticmethod
+    def _widget_es_campo_texto(w) -> bool:
+        if w is None:
+            return False
+        try:
+            return w.winfo_class() in ("Entry", "Text", "TEntry")
+        except tk.TclError:
+            return False
 
-        def _widget_es_campo_texto(w) -> bool:
-            if w is None:
-                return False
-            try:
-                return w.winfo_class() in ("Entry", "Text", "TEntry")
-            except tk.TclError:
-                return False
+    def _bind_teclado_sistema_en_campos(self) -> None:
+        """Muestra/oculta el teclado de Pi OS al entrar o salir de campos de texto (Tk no usa AT-SPI)."""
+        for clase in ("Entry", "Text", "TEntry"):
+            self.bind_class(clase, "<FocusIn>", self._al_foco_en_campo_texto, add="+")
+            self.bind_class(clase, "<FocusOut>", self._al_foco_fuera_campo_texto, add="+")
+        self.bind_all("<FocusIn>", self._al_focus_in_teclado_sistema, add="+")
 
-        def al_interactuar(event=None):
-            w = getattr(event, "widget", None) if event else None
-            if not _widget_es_campo_texto(w):
-                w = self.focus_get()
-            if not _widget_es_campo_texto(w):
-                return
-            self._programar_solicitud_teclado_sistema()
+    def _al_foco_en_campo_texto(self, _event=None) -> None:
+        self._cancelar_ocultar_teclado_programado()
+        self._programar_mostrar_teclado_sistema()
 
-        self.bind_all("<FocusIn>", al_interactuar, add="+")
-        self.bind_all("<Button-1>", lambda e: self.after(80, lambda: al_interactuar(e)), add="+")
+    def _al_foco_fuera_campo_texto(self, _event=None) -> None:
+        self._cancelar_mostrar_teclado_programado()
+        self._programar_ocultar_teclado_sistema()
 
-    def _programar_solicitud_teclado_sistema(self) -> None:
+    def _al_focus_in_teclado_sistema(self, event) -> None:
+        w = getattr(event, "widget", None)
+        if self._widget_es_campo_texto(w):
+            return
+        try:
+            if w is not None and w.winfo_toplevel() == self:
+                self._cancelar_mostrar_teclado_programado()
+                self._programar_ocultar_teclado_sistema()
+        except tk.TclError:
+            pass
+
+    def _cancelar_mostrar_teclado_programado(self) -> None:
         if self._teclado_sistema_tarea is not None:
             try:
                 self.after_cancel(self._teclado_sistema_tarea)
             except Exception:
                 pass
-        self._teclado_sistema_tarea = self.after(200, self._solicitar_teclado_sistema)
+            self._teclado_sistema_tarea = None
 
-    def _solicitar_teclado_sistema(self) -> None:
-        """Muestra el teclado integrado de Pi OS (squeekboard / wvkbd) y lo trae al frente."""
+    def _cancelar_ocultar_teclado_programado(self) -> None:
+        if self._teclado_ocultar_tarea is not None:
+            try:
+                self.after_cancel(self._teclado_ocultar_tarea)
+            except Exception:
+                pass
+            self._teclado_ocultar_tarea = None
+
+    def _programar_mostrar_teclado_sistema(self) -> None:
+        self._cancelar_mostrar_teclado_programado()
+        self._teclado_sistema_tarea = self.after(200, self._mostrar_teclado_sistema)
+
+    def _programar_ocultar_teclado_sistema(self) -> None:
+        self._cancelar_ocultar_teclado_programado()
+        self._teclado_ocultar_tarea = self.after(450, self._ocultar_teclado_si_sin_campo_texto)
+
+    def _ocultar_teclado_si_sin_campo_texto(self) -> None:
+        self._teclado_ocultar_tarea = None
+        if self._widget_es_campo_texto(self.focus_get()):
+            return
+        self._ocultar_teclado_sistema()
+
+    def _mostrar_teclado_sistema(self) -> None:
+        """Teclado integrado de Pi OS (squeekboard vía busctl)."""
         self._teclado_sistema_tarea = None
         if os.name != "posix":
             return
@@ -253,23 +289,31 @@ class AplicacionInventario(tk.Tk):
                 )
             except Exception:
                 pass
-        if shutil.which("wvkbd-mobintl"):
+        self.after(300, self._elevar_ventana_teclado_sistema)
+
+    def _ocultar_teclado_sistema(self) -> None:
+        if os.name != "posix":
+            return
+        busctl = shutil.which("busctl")
+        if busctl:
             try:
-                r = subprocess.run(
-                    ["pgrep", "-f", "wvkbd"],
+                subprocess.run(
+                    [
+                        busctl,
+                        "call",
+                        "--user",
+                        "sm.puri.OSK0",
+                        "/sm.puri/OSK0",
+                        "sm.puri.OSK0",
+                        "SetVisible",
+                        "b",
+                        "false",
+                    ],
                     capture_output=True,
-                    timeout=2,
+                    timeout=3,
                 )
-                if r.returncode != 0:
-                    subprocess.Popen(
-                        ["wvkbd-mobintl"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
             except Exception:
                 pass
-        self.after(350, self._elevar_ventana_teclado_sistema)
 
     def _elevar_ventana_teclado_sistema(self) -> None:
         xdotool = shutil.which("xdotool")
@@ -709,14 +753,7 @@ class AplicacionInventario(tk.Tk):
         if os.name == "posix" and not default_port:
             default_port = self._configuracion.serie.puerto_defecto_pi_respaldo
         self.var_puerto_serial = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
-        tk.Entry(row, textvariable=self.var_puerto_serial, width=16, font=("", 10)).pack(side="left", padx=(4, 4))
-        if os.name == "posix":
-            ttk.Button(
-                row,
-                text="Teclado",
-                style="Handheld.TButton",
-                command=self._solicitar_teclado_sistema,
-            ).pack(side="left", padx=(0, 2))
+        tk.Entry(row, textvariable=self.var_puerto_serial, width=20, font=("", 10)).pack(side="left", padx=(4, 6))
 
         def poner_puerto_windows():
             self.var_puerto_serial.set("COM5")
@@ -1126,15 +1163,7 @@ class AplicacionInventario(tk.Tk):
         row.pack(fill="x", padx=12, pady=3)
 
         self.var_rastreo_busqueda = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.var_rastreo_busqueda, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(0, 4))
-        if os.name == "posix":
-            ttk.Button(
-                row,
-                text="Tec",
-                width=4,
-                style="Handheld.TButton",
-                command=self._solicitar_teclado_sistema,
-            ).pack(side="left", padx=(0, 2))
+        tk.Entry(row, textvariable=self.var_rastreo_busqueda, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(row, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).pack(side="left", padx=(0, 4))
         ttk.Button(row, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).pack(side="left")
 
@@ -1338,15 +1367,7 @@ class AplicacionInventario(tk.Tk):
         row.pack(fill="x", pady=2)
         tk.Label(row, text="Código activo:", font=("", 10)).pack(side="left")
         self.var_escritura_codigo_entrada = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.var_escritura_codigo_entrada, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(6, 4))
-        if os.name == "posix":
-            ttk.Button(
-                row,
-                text="Tec",
-                width=4,
-                style="Handheld.TButton",
-                command=self._solicitar_teclado_sistema,
-            ).pack(side="left")
+        tk.Entry(row, textvariable=self.var_escritura_codigo_entrada, font=("", 10)).pack(side="left", fill="x", expand=True, padx=(6, 0))
         self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
 
         tk.Label(box, textvariable=self.var_escritura_epc_nuevo, font=("", 9), anchor="w").pack(fill="x", pady=(8, 2))

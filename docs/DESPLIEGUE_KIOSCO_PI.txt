@@ -70,14 +70,9 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
   foco. Si abres el teclado a mano y escribes, funciona: el problema no es la app,
   es que el SO no enlaza auto-mostrar con ventanas Tk.
 
-  La app ahora, al tocar un campo o con el botón Teclado / ⌨:
-  - pide mostrar squeekboard (busctl SetVisible) si aplica en tu Pi OS
-  - o lanza wvkbd-mobintl si no está corriendo
-  - y con xdotool intenta traer esa ventana al frente
-
-  sudo apt-get install -y xdotool
-
-  Si no aparece: usa el botón Teclado en Conectar / Tec en Rastrear y Escribir tag.
+  La app, al enfocar un campo de texto, pide mostrar squeekboard (busctl
+  SetVisible true) y al salir del campo lo oculta (SetVisible false). Opcional:
+  sudo apt-get install -y xdotool para traer la ventana del teclado al frente.
 
 6. Bluetooth (mensaje «Emparejar» en la Pi)
 
