@@ -26,12 +26,19 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
   Si abres solo "python -m ... handheld_app" SIN --kiosk, verás una ventana
   chica 480x320 en el centro del escritorio (como en Pi Connect). Eso es normal.
 
-  En Linux, --kiosk quita el marco de la ventana y llena la pantalla sin usar
-  fullscreen de Tk. La barra superior del SO (Wi‑Fi, reloj) solo se quita
-  comentando @lxpanel-pi (paso 4), no con la app sola.
+  En Linux, --kiosk maximiza la ventana (modo estable). La barra del SO solo se
+  quita comentando @lxpanel-pi (paso 4).
 
-  Probar el kiosco en la pantalla física de la Pi (o HDMI). Pi Connect a veces
-  parpadea o se siente lento; no uses solo el remoto para validar rendimiento.
+  Si parpadea o se traba (sobre todo en Pi Connect):
+  - No abras la app dos veces (revisa autostart en ~/.config/autostart/).
+  - Mata instancias viejas: pkill -f handheld_app
+  - El script launch-handheld.sh ya evita doble instancia (flock).
+
+  Pantalla Waveshare 3.5" sin barra de ventana (cuando la tengas):
+  export RFID_KIOSK_BORDERLESS=1
+  ./deploy/raspberry-pi-recortado/launch-handheld.sh
+
+  Prueba final en la pantalla física de la Pi, no solo por Pi Connect.
 
 3. Autostart
 
@@ -54,14 +61,28 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Si tu imagen usa otro panel, revisa la doc de tu versión de Pi OS.
 
-5. Teclado en pantalla
+5. Teclado en pantalla (el de Pi OS, no Onboard)
 
-  Control Centre → Display → teclado en pantalla (por ejemplo si hay táctil).
-  Opcional: sudo apt-get install -y xdotool (la app intenta traer el teclado al frente al enfocar un campo).
+  Actívalo en Control Centre → Display (por ejemplo si hay táctil).
 
-6. Bluetooth
+  Con la app maximizada el teclado del sistema a veces queda detrás. Opciones:
 
-  Los diálogos del sistema (emparejar) suelen salir encima de la app. Ver CONEXION_BLUETOOTH_HID.txt y GUIA_MODO_BLUETOOTH_HID_RPI.txt.
+  a) Toca el campo dos veces; el SO suele mostrar el teclado si detecta táctil.
+  b) sudo apt-get install -y xdotool
+     Al enfocar un campo la app intenta traer al frente la ventana del teclado
+     del sistema (wf-osk / teclado integrado).
+  c) Teclado USB en la Pi para mantenimiento.
+  d) A futuro: teclado dentro de la app si hace falta.
+
+6. Bluetooth (mensaje «Emparejar» en la Pi)
+
+  La ventana maximizada puede tapar ese diálogo. Opciones:
+
+  a) Modo teclado Bluetooth → «Bajar app (emparejar)», acepta en la Pi,
+     luego «Pantalla completa».
+  b) Emparejar la primera vez sin kiosco; ver CONEXION_BLUETOOTH_HID.txt.
+  c) Por SSH con bluetoothctl (pair, trust, connect).
+  d) GUIA_MODO_BLUETOOTH_HID_RPI.txt.
 
 7. Variables opcionales
 

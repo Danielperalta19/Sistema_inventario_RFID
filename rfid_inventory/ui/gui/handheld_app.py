@@ -114,6 +114,7 @@ class AplicacionInventario(tk.Tk):
         self._tarea_ui_proximidad = None
         self._gatt_detenido_automaticamente_para_inventario = False
         self._advertido_fallo_sudo_gatt = False
+        self._kiosk_pausado_para_sistema = False
 
         self._inicializar_estilos()
 
@@ -153,8 +154,16 @@ class AplicacionInventario(tk.Tk):
             # Una sola vez tras armar la UI (evita parpadeo/trabas por withdraw en bucle).
             self.after_idle(self._aplicar_modo_kiosk_pantalla)
 
+    def _kiosk_sin_marco_activo(self) -> bool:
+        v = os.environ.get("RFID_KIOSK_BORDERLESS", "0").strip().lower()
+        return v in ("1", "true", "yes", "on")
+
     def _aplicar_modo_kiosk_pantalla(self) -> None:
-        """Kiosco en Linux: sin decoración y a pantalla completa (no EWMH fullscreen)."""
+        """Kiosco: pantalla completa sin EWMH fullscreen (mejor con teclado en pantalla).
+
+        Por defecto en Linux NO usa overrideredirect (evita parpadeo en Pi Connect).
+        Para la TFT Waveshare sin marco: export RFID_KIOSK_BORDERLESS=1
+        """
         if not self._modo_kiosk or self._kiosk_geometria_aplicada:
             return
         self._kiosk_geometria_aplicada = True
@@ -166,22 +175,27 @@ class AplicacionInventario(tk.Tk):
             try:
                 sw = max(int(self.winfo_screenwidth()), 480)
                 sh = max(int(self.winfo_screenheight()), 320)
-                self.resizable(False, False)
-                self.minsize(sw, sh)
-                self.maxsize(sw, sh)
-                self.overrideredirect(True)
-                self.geometry(f"{sw}x{sh}+0+0")
-                try:
-                    self.lift()
-                except tk.TclError:
-                    pass
+                self.resizable(True, True)
+                self.minsize(480, 320)
+                if self._kiosk_sin_marco_activo():
+                    self.resizable(False, False)
+                    self.minsize(sw, sh)
+                    self.maxsize(sw, sh)
+                    self.overrideredirect(True)
+                    self.geometry(f"{sw}x{sh}+0+0")
+                else:
+                    try:
+                        self.state("zoomed")
+                    except tk.TclError:
+                        self.geometry(f"{sw}x{sh}+0+0")
+                # No usar lift(): deja la app encima de diálogos Bluetooth y del teclado del SO.
                 return
             except tk.TclError:
-                self._kiosk_geometria_aplicada = False
+                pass
         try:
             self.attributes("-fullscreen", True)
         except tk.TclError:
-            self._kiosk_geometria_aplicada = False
+            pass
 
     def _kiosk_bind_elevar_teclado_en_focos_texto(self) -> None:
         if os.name != "posix" or not self._modo_kiosk:
@@ -200,25 +214,59 @@ class AplicacionInventario(tk.Tk):
                     self.after_cancel(self._kiosk_tarea_elevar_teclado)
                 except Exception:
                     pass
-            self._kiosk_tarea_elevar_teclado = self.after(280, self._kiosk_elevar_teclado_xdotool)
+            self._kiosk_tarea_elevar_teclado = self.after(280, self._kiosk_al_enfocar_campo_texto)
 
         self.bind_all("<FocusIn>", en_focus, add="+")
 
-    def _kiosk_elevar_teclado_xdotool(self) -> None:
+    def _kiosk_al_enfocar_campo_texto(self) -> None:
+        """Teclado del SO (Control Centre): intentar traer su ventana al frente con xdotool."""
         self._kiosk_tarea_elevar_teclado = None
+        self._kiosk_elevar_teclado_sistema_xdotool()
+
+    def _kiosk_pausar_para_dialogos_sistema(self) -> None:
+        """Achica y manda la app al fondo para ver el diálogo de emparejamiento Bluetooth."""
+        if not self._modo_kiosk or self._kiosk_pausado_para_sistema:
+            return
+        self._kiosk_pausado_para_sistema = True
+        try:
+            self.attributes("-topmost", False)
+            self.state("normal")
+            self.geometry("420x260+20+60")
+            self.lower()
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def _kiosk_restaurar_pantalla(self) -> None:
+        if not self._modo_kiosk:
+            return
+        self._kiosk_pausado_para_sistema = False
+        try:
+            sw = max(int(self.winfo_screenwidth()), 480)
+            sh = max(int(self.winfo_screenheight()), 320)
+            if self._kiosk_sin_marco_activo():
+                self.geometry(f"{sw}x{sh}+0+0")
+            else:
+                self.state("zoomed")
+        except tk.TclError:
+            pass
+
+    def _kiosk_elevar_teclado_sistema_xdotool(self) -> None:
+        """Sube la ventana del teclado en pantalla de Pi OS (wf-osk, squeekboard, etc.)."""
         xdotool = shutil.which("xdotool")
         if not xdotool:
             return
+        # Nombres habituales del teclado integrado en Raspberry Pi OS (no Onboard).
         patrones = [
-            ("classname", "Onboard"),
-            ("class", "Onboard"),
-            ("classname", "onboard"),
-            ("name", "Onboard"),
-            ("classname", "matchbox-keyboard"),
-            ("classname", "Matchbox-keyboard"),
+            ("class", "wf-osk"),
+            ("classname", "wf-osk"),
             ("classname", "squeekboard"),
             ("classname", "Squeekboard"),
-            ("class", "wf-osk"),
+            ("name", "Screen Keyboard"),
+            ("name", "screen keyboard"),
+            ("name", "Teclado en pantalla"),
+            ("name", "keyboard"),
+            ("name", "Keyboard"),
         ]
         for onlyvisible in (True, False):
             for kind, name in patrones:
@@ -1334,6 +1382,29 @@ class AplicacionInventario(tk.Tk):
             wraplength=440,
             justify="left",
         ).pack(anchor="w", padx=12, pady=(6, 2))
+        if self._modo_kiosk:
+            tk.Label(
+                self._marco_hid,
+                text="Si no ves el mensaje «Emparejar» en la Pi, usa el botón de abajo.",
+                font=("", 8),
+                fg="#555",
+                wraplength=440,
+                justify="left",
+            ).pack(anchor="w", padx=12, pady=(4, 2))
+            row_hid = tk.Frame(self._marco_hid)
+            row_hid.pack(fill="x", padx=12, pady=(4, 8))
+            ttk.Button(
+                row_hid,
+                text="Bajar app (emparejar)",
+                style="Handheld.TButton",
+                command=self._kiosk_pausar_para_dialogos_sistema,
+            ).pack(side="left", fill="x", expand=True, padx=(0, 4))
+            ttk.Button(
+                row_hid,
+                text="Pantalla completa",
+                style="Handheld.TButton",
+                command=self._kiosk_restaurar_pantalla,
+            ).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
     def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")

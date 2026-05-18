@@ -9,6 +9,20 @@ export RFID_REPO_ROOT="${RFID_REPO_ROOT:-${REPO_DEFAULT}}"
 
 cd "${RFID_REPO_ROOT}"
 
+# Una sola instancia (evita parpadeo si autostart + terminal lanzan a la vez)
+if command -v flock >/dev/null 2>&1; then
+  LOCK="${XDG_RUNTIME_DIR:-/tmp}/rfid-handheld.lock"
+  exec 9>"${LOCK}"
+  if ! flock -n 9; then
+    echo "La app de inventario ya está en ejecución." >&2
+    exit 0
+  fi
+fi
+
+# Kiosco estable (sin overrideredirect): mejor en Pi Connect / HDMI.
+# En la TFT 3.5" Waveshare puedes usar: export RFID_KIOSK_BORDERLESS=1
+export RFID_KIOSK_BORDERLESS="${RFID_KIOSK_BORDERLESS:-0}"
+
 # Evitar salvapantallas que apaguen la TFT durante inventario
 if command -v xset >/dev/null 2>&1; then
   xset s off 2>/dev/null || true
