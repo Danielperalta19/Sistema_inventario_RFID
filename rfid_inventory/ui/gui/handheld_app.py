@@ -68,11 +68,14 @@ class AplicacionInventario(tk.Tk):
     def __init__(self, *, kiosk: bool = False):
         super().__init__()
         self._modo_kiosk = bool(kiosk)
+        self._kiosk_geometria_aplicada = False
         self.title("Inventario RFID")
-        self.geometry("480x320")
-        self.minsize(480, 320)
         if self._modo_kiosk:
-            self._aplicar_modo_kiosk_pantalla()
+            # Tamaño real se fija al mostrar la ventana (_aplicar_modo_kiosk_pantalla).
+            self.geometry("480x320")
+        else:
+            self.geometry("480x320")
+            self.minsize(480, 320)
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -147,17 +150,22 @@ class AplicacionInventario(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
         if self._modo_kiosk:
             self._kiosk_bind_elevar_teclado_en_focos_texto()
+            self.bind("<Map>", self._kiosk_al_mapear_ventana, add="+")
+            self.after_idle(self._aplicar_modo_kiosk_pantalla)
+            self.after(150, self._aplicar_modo_kiosk_pantalla)
+
+    def _kiosk_al_mapear_ventana(self, event) -> None:
+        if event.widget is self and self._modo_kiosk:
+            self.after(50, self._aplicar_modo_kiosk_pantalla)
 
     def _aplicar_modo_kiosk_pantalla(self) -> None:
-        """Kiosco en Linux: sin decoración de ventana y a pantalla completa (no EWMH fullscreen).
+        """Kiosco en Linux: sin decoración y a pantalla completa (no EWMH fullscreen).
 
-        ``-fullscreen`` de Tk suele dejar el teclado del sistema detrás; ``zoomed``
-        deja barra del gestor y botón minimizar. Sin decoración (overrideredirect)
-        cubre el área útil; conviene desactivar el panel del escritorio (lxpanel).
-
-        Opcional: ``sudo apt install xdotool`` para intentar traer el teclado
-        virtual al frente al enfocar un campo (ver ``_kiosk_elevar_teclado_xdotool``).
+        Se llama tras construir la UI y al mapear la ventana; si solo se hace en
+        __init__, muchas Pi dejan la ventana en 480x320 centrada.
         """
+        if not self._modo_kiosk:
+            return
         try:
             self.update_idletasks()
         except tk.TclError:
@@ -169,13 +177,29 @@ class AplicacionInventario(tk.Tk):
                 self.resizable(False, False)
                 self.minsize(sw, sh)
                 self.maxsize(sw, sh)
+                # En LXDE/Wayland a veces hace falta ocultar y volver a mostrar.
+                try:
+                    self.withdraw()
+                except tk.TclError:
+                    pass
                 self.overrideredirect(True)
                 self.geometry(f"{sw}x{sh}+0+0")
+                try:
+                    self.deiconify()
+                except tk.TclError:
+                    pass
+                try:
+                    self.lift()
+                    self.focus_force()
+                except tk.TclError:
+                    pass
+                self._kiosk_geometria_aplicada = True
                 return
             except tk.TclError:
                 pass
         try:
             self.attributes("-fullscreen", True)
+            self._kiosk_geometria_aplicada = True
         except tk.TclError:
             pass
 
@@ -509,12 +533,15 @@ class AplicacionInventario(tk.Tk):
             font=("", 15, "bold"),
         ).pack(pady=(28, 6))
 
-        tk.Label(
-            self._marco_inicio,
-            text="Pantalla 480×320 · Raspberry Pi",
-            font=("", 8),
-            fg="#555",
-        ).pack(pady=(0, 14))
+        if not self._modo_kiosk:
+            tk.Label(
+                self._marco_inicio,
+                text="Pantalla 480×320 · Raspberry Pi",
+                font=("", 8),
+                fg="#555",
+            ).pack(pady=(0, 14))
+        else:
+            tk.Frame(self._marco_inicio, height=8).pack()
 
         ttk.Button(
             self._marco_inicio,

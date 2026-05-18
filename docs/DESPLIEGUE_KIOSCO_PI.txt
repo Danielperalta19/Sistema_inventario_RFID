@@ -16,14 +16,19 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   launch-handheld.sh usa .venv/bin/python si existe.
 
-2. Probar
+2. Probar (importante: con --kiosk)
 
   chmod +x deploy/raspberry-pi-recortado/launch-handheld.sh
   ./deploy/raspberry-pi-recortado/launch-handheld.sh
 
   O: .venv/bin/python -m rfid_inventory.ui.gui.handheld_app --kiosk
 
-  En Linux, --kiosk quita el marco de la ventana y llena la pantalla sin usar fullscreen de Tk (así el teclado virtual del sistema suele verse encima). No es lo mismo que maximizar con el gestor (eso deja barra del SO y minimizar).
+  Si abres solo "python -m ... handheld_app" SIN --kiosk, verás una ventana
+  chica 480x320 en el centro del escritorio (como en Pi Connect). Eso es normal.
+
+  En Linux, --kiosk quita el marco de la ventana y llena la pantalla sin usar
+  fullscreen de Tk. La barra superior del SO (Wi‑Fi, reloj) solo se quita
+  comentando @lxpanel-pi (paso 4), no con la app sola.
 
 3. Autostart
 
