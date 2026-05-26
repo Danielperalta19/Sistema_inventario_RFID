@@ -104,7 +104,7 @@ class TecladoVirtual(tk.Frame):
     def instalar_en(self, ventana: tk.Misc) -> None:
         """Muestra/oculta el teclado al entrar o salir de Entry/Text en ``ventana``."""
         self._ventana = ventana
-        for clase in ("Entry", "Text", "TEntry"):
+        for clase in ("Entry", "Text", "TEntry", "TCombobox"):
             ventana.bind_class(clase, "<FocusIn>", self._al_foco, add="+")
             ventana.bind_class(clase, "<FocusOut>", self._al_perder_foco, add="+")
 
@@ -112,8 +112,10 @@ class TecladoVirtual(tk.Frame):
     def _widget_es_campo_texto(w) -> bool:
         if w is None:
             return False
+        if getattr(w, "_campo_autocompletado", None) is not None:
+            return True
         try:
-            return w.winfo_class() in ("Entry", "Text", "TEntry")
+            return w.winfo_class() in ("Entry", "Text", "TEntry", "TCombobox")
         except tk.TclError:
             return False
 
@@ -139,6 +141,9 @@ class TecladoVirtual(tk.Frame):
         w = getattr(event, "widget", None)
         if not self._widget_es_campo_texto(w):
             return
+        campo = getattr(w, "_campo_autocompletado", None)
+        if campo is not None:
+            w = campo.entrada
         self.enlazar(w)
         self.mostrar()
 
@@ -150,10 +155,21 @@ class TecladoVirtual(tk.Frame):
                 pass
         self._tarea_ocultar = self.after(250, self._ocultar_si_aplica)
 
+    @staticmethod
+    def _focus_seguro(ventana: tk.Misc):
+        """focus_get falla si el foco está en la lista desplegable interna del Combobox."""
+        try:
+            return ventana.focus_get()
+        except (tk.TclError, KeyError):
+            return None
+
     def _ocultar_si_aplica(self) -> None:
         self._tarea_ocultar = None
         ventana = self._ventana or self.winfo_toplevel()
-        w = ventana.focus_get()
+        w = self._focus_seguro(ventana)
+        if w is None:
+            # Popdown del Combobox u otro widget interno: no ocultar el teclado aún.
+            return
         if self._es_descendiente_de(w, self) or self._es_descendiente_de(w, self._clip):
             return
         if self._widget_es_campo_texto(w):
@@ -288,7 +304,7 @@ class TecladoVirtual(tk.Frame):
 
 
 def _demo() -> None:
-    """Prueba aislada: python -m rfid_inventory.ui.gui.teclado_virtual"""
+    """Prueba"""
     root = tk.Tk()
     root.title("Teclado virtual")
     root.geometry("480x320")

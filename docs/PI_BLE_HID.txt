@@ -11,8 +11,8 @@ Archivos en rfid_inventory/pi_ble_hid/
 
   gatt_server_rfid.py — Servidor GATT + lectura R200 opcional.
   hid_keys.py — Texto a teclas HID.
-  gattServer_upstream.py — Referencia original (docs/).
   systemd/ — unidades y rfid-hid-bt-up.sh
+  Demo original (MIT): https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral
 
 Copia a la Pi: carpeta pi_ble_hid y vendor/rfid_r200.
 

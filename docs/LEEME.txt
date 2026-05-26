@@ -11,7 +11,7 @@ Todo está en esta carpeta (docs/).
   AUTOSTART_HID.txt — Servicios systemd.
   GUIA_MODO_BLUETOOTH_HID_RPI.txt — Modo teclado desde la GUI y sudoers.
   BITACORA.txt — Notas técnicas del módulo BLE.
-  gattServer_upstream.py — Referencia HeadHodge (no es producción).
+  ESTRUCTURA.txt — Mapa de carpetas del repo.
 
 Scripts de arranque: deploy/raspberry-pi-recortado/
 

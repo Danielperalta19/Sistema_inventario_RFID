@@ -1,1 +1,0 @@
-DOCUMENTACIÓN MOVIDA → docs/AUTOSTART_HID.txt (ver docs/LEEME.txt)

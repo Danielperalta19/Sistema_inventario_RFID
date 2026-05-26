@@ -29,6 +29,7 @@ from rfid_inventory.catalog.catalog_loader import (
 )
 from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo
 from rfid_inventory.drivers import LectorR200
+from rfid_inventory.ui.gui.campo_autocompletado import CampoAutocompletado
 from rfid_inventory.ui.gui.teclado_virtual import TecladoVirtual
 from rfid_inventory.ui.ui_formatters import (
     codigo_activo_o_guion_desde_epc,
@@ -388,6 +389,7 @@ class AplicacionInventario(tk.Tk):
         elif nombre_marco == "conexion":
             self._marco_conexion.pack(fill="both", expand=True)
         elif nombre_marco == "ubicacion":
+            self._reiniciar_formulario_ubicacion()
             self._marco_ubicacion.pack(fill="both", expand=True)
         elif nombre_marco == "escaneo":
             self._marco_escaneo.pack(fill="both", expand=True)
@@ -590,39 +592,46 @@ class AplicacionInventario(tk.Tk):
             anchor="w", padx=12, pady=(8, 6)
         )
 
+        tk.Label(
+            self._marco_ubicacion,
+            text="Escribe y verás opciones debajo; toca una para elegirla (teclado al tocar el campo).",
+            font=("", 8),
+            fg="#555",
+            wraplength=440,
+        ).pack(anchor="w", padx=12, pady=(0, 4))
+
         row_b = tk.Frame(self._marco_ubicacion)
         row_b.pack(fill="x", padx=12, pady=4)
         tk.Label(row_b, text="Edificio:", font=("", 10)).pack(anchor="w")
         buildings = sorted(list(self._ubicaciones_anidadas.keys()))
-        self.var_edificio = tk.StringVar(value=buildings[0])
-        self.combo_edificio = ttk.Combobox(
+        self.var_edificio = tk.StringVar(value="")
+        self.campo_edificio = CampoAutocompletado(
             row_b,
             textvariable=self.var_edificio,
-            values=buildings,
-            state="readonly",
-            width=32,
+            opciones=buildings,
+            al_cambiar=self._al_texto_edificio_cambio,
             font=("", 10),
+            max_visible=5,
         )
-        self.combo_edificio.pack(fill="x", pady=(2, 0))
+        self.campo_edificio.pack(fill="x", pady=(2, 0))
 
         row_r = tk.Frame(self._marco_ubicacion)
         row_r.pack(fill="x", padx=12, pady=6)
         tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
-        self.var_sala = tk.StringVar()
-        first_rooms = sorted(list(self._ubicaciones_anidadas[buildings[0]].keys()))
-        self.var_sala.set(first_rooms[0])
-        self.combo_sala = ttk.Combobox(
+        self.var_sala = tk.StringVar(value="")
+        self.campo_sala = CampoAutocompletado(
             row_r,
             textvariable=self.var_sala,
-            values=first_rooms,
-            state="readonly",
-            width=32,
+            opciones=[],
+            al_cambiar=self._actualizar_pista_ubicacion,
             font=("", 10),
+            max_visible=5,
         )
-        self.combo_sala.pack(fill="x", pady=(2, 0))
+        self.campo_sala.pack(fill="x", pady=(2, 0))
+        self.campo_sala.habilitar(False)
 
-        self.combo_edificio.bind("<<ComboboxSelected>>", self._al_seleccionar_edificio)
-        self.combo_sala.bind("<<ComboboxSelected>>", lambda _e: self._actualizar_pista_ubicacion())
+        self._edificio_ubicacion_activo = None
+        self.var_edificio.trace_add("write", self._al_texto_edificio_cambio)
 
         self.var_pista_ubicacion = tk.StringVar(value="")
         tk.Label(self._marco_ubicacion, textvariable=self.var_pista_ubicacion, font=("", 8), fg="#444", wraplength=440).pack(
@@ -648,17 +657,48 @@ class AplicacionInventario(tk.Tk):
         )
         self.btn_ir_escaneo.pack(side="right", padx=8, ipadx=8, ipady=4)
 
-    def _actualizar_pista_ubicacion(self):
-        self.var_pista_ubicacion.set("Selección: {0}".format(self._clave_ubicacion_actual()))
-
-    def _al_seleccionar_edificio(self, event=None):
-        ed = self.var_edificio.get()
-        rooms = sorted(list(self._ubicaciones_anidadas.get(ed, {}).keys()))
-        self.combo_sala["values"] = rooms
-        if rooms:
-            self.var_sala.set(rooms[0])
+    def _reiniciar_formulario_ubicacion(self) -> None:
+        """Vacía edificio/sala cada vez que se abre la pantalla de ubicación."""
+        edificios = sorted(list(self._ubicaciones_anidadas.keys()))
+        self.campo_edificio.reiniciar()
+        self.campo_edificio.actualizar_opciones(edificios)
+        self.campo_sala.reiniciar()
+        self.campo_sala.actualizar_opciones([])
+        self.campo_sala.habilitar(False)
+        self._edificio_ubicacion_activo = None
         self._actualizar_pista_ubicacion()
-        
+
+    def _al_texto_edificio_cambio(self, *_args) -> None:
+        ed = self.campo_edificio.valor_valido()
+        if ed:
+            if ed != self._edificio_ubicacion_activo:
+                self._edificio_ubicacion_activo = ed
+                self.campo_sala.reiniciar()
+            rooms = sorted(list(self._ubicaciones_anidadas.get(ed, {}).keys()))
+            self.campo_sala.habilitar(True)
+            self.campo_sala.actualizar_opciones(rooms)
+        else:
+            self._edificio_ubicacion_activo = None
+            self.campo_sala.habilitar(False)
+            self.campo_sala.actualizar_opciones([])
+        self._actualizar_pista_ubicacion()
+
+    def _actualizar_pista_ubicacion(self):
+        ed = (self.var_edificio.get() or "").strip()
+        sala = (self.var_sala.get() or "").strip()
+        ed_ok = self.campo_edificio.valor_valido()
+        sala_ok = self.campo_sala.valor_valido() if ed_ok else None
+        if not ed:
+            self.var_pista_ubicacion.set("Escribe o elige un edificio de la lista.")
+        elif not ed_ok:
+            self.var_pista_ubicacion.set("Elige un edificio de la lista (coincidencia exacta).")
+        elif not sala:
+            self.var_pista_ubicacion.set("Elige cubículo / lab / sala de la lista.")
+        elif not sala_ok:
+            self.var_pista_ubicacion.set("Elige una sala de la lista (coincidencia exacta).")
+        else:
+            self.var_pista_ubicacion.set("Selección: {0}".format(self._clave_ubicacion_actual()))
+
     def _construir_escaneo(self):
         self._marco_escaneo = tk.Frame(self.contenedor)
 
@@ -1281,8 +1321,23 @@ class AplicacionInventario(tk.Tk):
             "Esperados: {0} | Leídos únicos: 0".format(self._servicio_inventario.cantidad_esperados(ubicacion))
         )
 
+    def _normalizar_seleccion_ubicacion(self) -> bool:
+        """Solo acepta edificio y sala que coincidan exactamente con una opción de la lista."""
+        ed = self.campo_edificio.valor_valido()
+        if not ed:
+            messagebox.showwarning("Ubicación", "Elige un edificio de la lista.")
+            return False
+        sala = self.campo_sala.valor_valido()
+        if not sala:
+            messagebox.showwarning("Ubicación", "Elige cubículo / lab / sala de la lista.")
+            return False
+        self._al_texto_edificio_cambio()
+        return True
+
     def ir_a_pantalla_escaneo(self):
         """Solo navega a la pantalla de inventario; no arranca el lector (evita el mismo clic como trigger)."""
+        if not self._normalizar_seleccion_ubicacion():
+            return
         self._cancelar_inicio_pistoleo_pendiente()
         self._escaner.reanudar()
         self._escaner.detener()

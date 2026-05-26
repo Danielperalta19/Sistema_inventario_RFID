@@ -1,0 +1,13 @@
+Bluetooth HID (teclado BLE) + puente RFID
+
+  gatt_server_rfid.py  — servidor GATT (producción)
+  hid_keys.py          — texto → teclas HID
+  web/                 — catálogo JSON y página de prueba
+  systemd/             — servicios al arrancar la Pi
+  scripts/             — detener/iniciar GATT al cambiar de modo
+
+Documentación completa: docs/ (raíz del repo)
+  Ver docs/LEEME.txt y docs/PI_BLE_HID.txt
+
+Demo original (referencia MIT):
+  https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral

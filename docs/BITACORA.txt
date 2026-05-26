@@ -8,7 +8,8 @@ Objetivo
 
 Origen
 
-  Demo MIT HeadHodge (Bluez-HID-over-Gatt-Keyboard-Peripheral). Referencia: docs/gattServer_upstream.py. Producción: pi_ble_hid/gatt_server_rfid.py.
+  Demo MIT HeadHodge: https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral
+  Producción en este repo: pi_ble_hid/gatt_server_rfid.py (+ hid_keys.py).
 
 Stack
 

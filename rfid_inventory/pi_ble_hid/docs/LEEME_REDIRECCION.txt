@@ -1,5 +1,0 @@
-La documentación está en docs/ (raíz del repositorio).
-
-  docs/LEEME.txt
-  docs/DESPLIEGUE_PI.txt
-  (resto de archivos .txt en esa carpeta)

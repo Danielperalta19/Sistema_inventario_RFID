@@ -66,7 +66,7 @@ No hay modo CLI en este repo (solo la GUI anterior se eliminó a propósito).
 | Autostart GUI en Pi | `deploy/raspberry-pi-recortado/` (`launch-handheld.sh`, `.desktop`) |
 | Emparejamiento, `bluetoothctl`, `btmgmt`, systemd | `docs/` + unidades en `rfid_inventory/pi_ble_hid/systemd/` |
 | Servidor GATT / teclas | `rfid_inventory/pi_ble_hid/gatt_server_rfid.py`, `hid_keys.py` |
-| Referencia upstream (no es el servicio en producción) | `docs/gattServer_upstream.py` |
+| Demo BLE HID original (referencia MIT) | https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral |
 
 ### Firmware emulador Arduino
 
@@ -130,20 +130,20 @@ En PowerShell también: `$env:RFID_WRITE_USE_HARDWARE="1"`. Con `0` o `false` fu
 
 ---
 
-## Estructura (lo esencial)
+## Estructura del repo
 
-- `rfid_inventory/app/app_config.py` — carga `config.json` (`cargar_configuracion_aplicacion`, `hardware_escritura_resuelto`).
-- `rfid_inventory/catalog/catalog_loader.py` — rutas y carga de JSON (`rutas_catalogo_por_defecto`, `cargar_ubicaciones_anidadas_desde_json`); `epc12_codec.py` — EPC ↔ código de activo (`codigo_activo_a_epc12_hex`, `epc12_hex_a_codigo_activo`).
-- `rfid_inventory/app/scanner.py` — hilo de lectura continua e instantánea (`Escaner`).
-- `rfid_inventory/app/inventory_service.py` — une catálogo + instantánea del escáner + comparación.
-- `rfid_inventory/app/inventory_presenter.py` — filas para pantalla de resultados.
-- `rfid_inventory/app/tag_writer_service.py` — lógica del módulo escribir etiqueta.
-- `rfid_inventory/app/tracking_service.py` / `proximity_tracker.py` — rastreo y suavizado RSSI.
-- `rfid_inventory/ui/gui/handheld_app.py` — toda la navegación y widgets.
-- `rfid_inventory/ui/ui_formatters.py` — textos “Activo” vs EPC en tablas.
-- `rfid_inventory/drivers/r200_driver.py` — serial y operaciones R200 (`LectorR200`, `programar_epc12_en_etiqueta` cuando haya hardware compatible).
-- `rfid_inventory/pi_ble_hid/web/` — catálogo y prueba web.
-- **`docs/`** — toda la documentación (Bluetooth HID, despliegue kiosco en Pi, bitácora).
+Mapa completo en [`docs/ESTRUCTURA.txt`](docs/ESTRUCTURA.txt). Resumen:
+
+| Carpeta | Contenido |
+| --- | --- |
+| `rfid_inventory/ui/gui/` | App de pantalla (`handheld_app`, teclado virtual, autocompletado ubicación) |
+| `rfid_inventory/app/` | Inventario, escáner, rastreo, escritura de tags |
+| `rfid_inventory/drivers/` + `vendor/rfid_r200/` | Comunicación con el R200 |
+| `rfid_inventory/pi_ble_hid/` | Bluetooth HID y JSON de catálogo |
+| `firmware/` | Emulador Arduino |
+| `docs/` | Guías Pi y Bluetooth |
+| `deploy/` | Autostart en la Raspberry |
+| `Diagramas/` | Secuencias y hardware |
 
 ---
 

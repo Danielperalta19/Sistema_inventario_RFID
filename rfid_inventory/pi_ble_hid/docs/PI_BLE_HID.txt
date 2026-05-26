@@ -1,7 +1,0 @@
-DOCUMENTACIÓN MOVIDA
-===================
-
-Este archivo ya no se mantiene aquí. Ver en la raíz del repositorio:
-
-  docs/PI_BLE_HID.txt
-  docs/LEEME.txt
