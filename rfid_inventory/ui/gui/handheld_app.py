@@ -127,9 +127,6 @@ class AplicacionInventario(tk.Tk):
         self._marco_escritura = None
         self._marco_hid = None
 
-        # A dónde avanzar después de conectar (menú o pantalla de ubicación)
-        self._marco_despues_conexion = "menu"
-
         self._construir_inicio()
         self._construir_menu()
         self._construir_conexion()
@@ -145,6 +142,10 @@ class AplicacionInventario(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
         self._teclado_virtual.instalar_en(self)
+
+        # En la Pi el puerto serial queda libre para rfid-hid-gatt hasta que el usuario abre inventario.
+        if os.name == "posix":
+            self.after(400, self._arranque_priorizar_bluetooth)
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID.
@@ -169,6 +170,70 @@ class AplicacionInventario(tk.Tk):
 
     def _hid_en_main_despues_cerrar_serial(self) -> None:
         """Tras soltar el USB: detiene escáner/temporizador en el hilo de la UI."""
+        self._detener_actividad_lector_en_ui()
+
+        threading.Thread(
+            target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=True),
+            daemon=True,
+        ).start()
+
+    def _arranque_priorizar_bluetooth(self) -> None:
+        """Al abrir la app en la Pi: GATT activo y puerto serial libre (sin conectar el lector aún)."""
+        threading.Thread(
+            target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False),
+            daemon=True,
+        ).start()
+
+    def _hilo_activar_gatt_y_ble(self, mostrar_errores_ui: bool = False) -> None:
+        self._intentar_reanudar_gatt_si_lo_pausamos()
+        self._asegurar_servicio_gatt_en_modo_hid()
+        if os.name != "posix":
+            return
+        errores = self._btmgmt_habilitar_adaptador_ble()
+        if mostrar_errores_ui and errores:
+            detalle = "\n\n".join(errores[:3])
+
+            def aviso(d=detalle):
+                messagebox.showwarning(
+                    "Bluetooth",
+                    "No pude dejar el adaptador listo para conectar.\n\n"
+                    f"{d}\n\n"
+                    "En la Pi: sudo ./scripts/reparar_bluetooth_hid.sh\n"
+                    "En Windows: Bluetooth LE Explorer > Connect (no solo Emparejar).",
+                )
+
+            try:
+                self.after(0, aviso)
+            except Exception:
+                pass
+
+    def _btmgmt_habilitar_adaptador_ble(self) -> list[str]:
+        """connectable + advertising + clase teclado. Devuelve lista de errores (vacía = OK)."""
+        errores: list[str] = []
+        btmgmt = shutil.which("btmgmt") or "/usr/bin/btmgmt"
+        for sub in ("connectable", "bondable", "advertising"):
+            cmd = ["sudo", "-n", btmgmt, "-i", "hci0", sub, "on"]
+            try:
+                p = subprocess.run(cmd, text=True, capture_output=True, timeout=25)
+            except Exception as e:
+                errores.append(f"{' '.join(cmd)}: {e}")
+                continue
+            if p.returncode != 0:
+                errores.append(f"{' '.join(cmd)} exit={p.returncode}\n{(p.stderr or p.stdout or '').strip()}")
+        hci = shutil.which("hciconfig")
+        if hci:
+            try:
+                subprocess.run(
+                    ["sudo", "-n", hci, "hci0", "class", "0x000540"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+            except Exception:
+                pass
+        return errores
+
+    def _detener_actividad_lector_en_ui(self) -> None:
         self._cancelar_inicio_pistoleo_pendiente()
         self._detener_temporizador_escaneo()
         self._ajustar_controles_escaneo_activo(False)
@@ -182,45 +247,22 @@ class AplicacionInventario(tk.Tk):
         except Exception:
             pass
 
-        def hilo_systemctl_start():
-            self._intentar_reanudar_gatt_si_lo_pausamos()
-
-        threading.Thread(target=hilo_systemctl_start, daemon=True).start()
-
+    def _volver_al_menu_principal(self) -> None:
+        """Menú principal: suelta el serial en la Pi para que rfid-hid-gatt pueda usar el lector."""
+        self._detener_actividad_lector_en_ui()
+        self._mostrar_marco("menu")
         if os.name != "posix":
             return
 
-        def hilo_trabajador():
-            btmgmt = shutil.which("btmgmt") or "/usr/bin/btmgmt"
-            cmd = ["sudo", "-n", btmgmt, "-i", "hci0", "advertising", "on"]
+        def hilo():
             try:
-                p = subprocess.run(cmd, text=True, capture_output=True)
-            except Exception as e:
-                self.after(
-                    0,
-                    lambda: messagebox.showwarning(
-                        "Bluetooth",
-                        "No pude ejecutar btmgmt desde la app.\n\n"
-                        f"Comando: {' '.join(cmd)}\n"
-                        f"Error: {e}",
-                    ),
-                )
-                return
+                if self._lector.connected:
+                    self._lector.cerrar()
+            except Exception:
+                pass
+            self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False)
 
-            if p.returncode != 0:
-                self.after(
-                    0,
-                    lambda: messagebox.showwarning(
-                        "Bluetooth",
-                        "Falló activar advertising.\n\n"
-                        f"Comando: {' '.join(cmd)}\n"
-                        f"Exit: {p.returncode}\n\n"
-                        f"STDOUT:\n{(p.stdout or '').strip()}\n\n"
-                        f"STDERR:\n{(p.stderr or '').strip()}",
-                    ),
-                )
-
-        threading.Thread(target=hilo_trabajador, daemon=True).start()
+        threading.Thread(target=hilo, daemon=True).start()
 
     def _sugerir_puerto_serial_pi(self) -> str:
         """Devuelve un puerto serial estable para Raspberry Pi (si existe).
@@ -363,6 +405,16 @@ class AplicacionInventario(tk.Tk):
         if self._sudo_systemctl_gatt("start"):
             self._gatt_detenido_automaticamente_para_inventario = False
 
+    def _asegurar_servicio_gatt_en_modo_hid(self) -> None:
+        """Arranca rfid-hid-gatt si está instalado pero inactivo (p. ej. tras reinicio o fallo)."""
+        if os.name != "posix":
+            return
+        if self._servicio_rfid_hid_gatt_activo():
+            return
+        if not os.path.isfile("/etc/systemd/system/rfid-hid-gatt.service"):
+            return
+        self._sudo_systemctl_gatt("start")
+
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
@@ -409,7 +461,7 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_inicio,
-            text="Sistema de PRUEBA RFID",
+            text="Sistema de Inventario RFID",
             font=("", 15, "bold"),
         ).pack(pady=(28, 6))
 
@@ -424,7 +476,7 @@ class AplicacionInventario(tk.Tk):
             self._marco_inicio,
             text="Iniciar",
             style="HandheldBig.TButton",
-            command=lambda: self._abrir_pantalla_conexion(siguiente_marco="menu"),
+            command=lambda: self._mostrar_marco("menu"),
         ).pack(fill="x", padx=28, ipady=6)
 
     def _construir_menu(self):
@@ -479,9 +531,9 @@ class AplicacionInventario(tk.Tk):
 
         ttk.Button(
             self._marco_conexion,
-            text="Inicio",
+            text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._mostrar_marco("inicio"),
+            command=self._volver_al_menu_principal,
         ).pack(anchor="w", padx=8, pady=(4, 0))
 
         tk.Label(
@@ -544,23 +596,15 @@ class AplicacionInventario(tk.Tk):
 
         self.btn_continuar = ttk.Button(
             self._marco_conexion,
-            text="Continuar",
+            text="Continuar (ubicación)",
             style="HandheldBig.TButton",
-            command=self._continuar_tras_conexion,
+            command=self._continuar_tras_conexion_inventario,
             state="disabled",
         )
         self.btn_continuar.pack(pady=4, ipadx=16, ipady=6)
 
-    def _abrir_pantalla_conexion(self, siguiente_marco: str):
-        """Pantalla de conexión reutilizable: al conectar, avanza a siguiente_marco."""
-        self._marco_despues_conexion = siguiente_marco or "menu"
-        # Texto del botón de continuar según el flujo
-        if self._marco_despues_conexion == "ubicacion":
-            self.btn_continuar.config(text="Continuar (ubicación)")
-        else:
-            self.btn_continuar.config(text="Ir al menú")
-
-        # Si ya está conectado, habilita continuar sin reconectar
+    def _abrir_pantalla_conexion_inventario(self):
+        """Solo inventario por ubicación usa el puerto serial; aquí se detiene GATT si comparte puerto."""
         if self._lector.connected:
             self.var_estado_lector.set("Lector: conectado")
             self.btn_conectar_lector.config(state="disabled")
@@ -569,21 +613,20 @@ class AplicacionInventario(tk.Tk):
             self.var_estado_lector.set("Lector: desconectado")
             self.btn_conectar_lector.config(state="normal")
             self.btn_continuar.config(state="disabled")
-
         self._mostrar_marco("conexion")
 
-    def _continuar_tras_conexion(self):
-        if self._marco_despues_conexion == "ubicacion":
-            self._mostrar_marco("ubicacion")
-        else:
-            self._mostrar_marco("menu")
+    def _continuar_tras_conexion_inventario(self):
+        if not self._lector.connected:
+            messagebox.showwarning("Lector", "Conecta el lector antes de continuar.")
+            return
+        self._mostrar_marco("ubicacion")
 
     def _entrar_inventario_ubicacion(self):
-        """Entrar al módulo de inventario por ubicación."""
+        """Inventario por ubicación: conectar lector aquí (el resto del menú no abre el serial)."""
         if self._lector.connected:
             self._mostrar_marco("ubicacion")
         else:
-            self._abrir_pantalla_conexion(siguiente_marco="ubicacion")
+            self._abrir_pantalla_conexion_inventario()
 
     def _construir_ubicacion(self):
         self._marco_ubicacion = tk.Frame(self.contenedor)
@@ -646,7 +689,7 @@ class AplicacionInventario(tk.Tk):
             row_btns,
             text="Atrás",
             style="Handheld.TButton",
-            command=lambda: self._mostrar_marco("menu"),
+            command=self._volver_al_menu_principal,
         ).pack(side="left", padx=8)
 
         self.btn_ir_escaneo = ttk.Button(
@@ -925,12 +968,7 @@ class AplicacionInventario(tk.Tk):
 
     def _volver_menu_desde_resultados(self):
         """Salir del flujo de inventario a menú principal."""
-        self._cancelar_inicio_pistoleo_pendiente()
-        self._escaner.reanudar()
-        self._escaner.detener()
-        self._detener_temporizador_escaneo()
-        self._ajustar_controles_escaneo_activo(False)
-        self._mostrar_marco("menu")
+        self._volver_al_menu_principal()
 
     def _construir_rastreo(self):
         self._marco_rastreo = tk.Frame(self.contenedor)
@@ -938,7 +976,7 @@ class AplicacionInventario(tk.Tk):
             self._marco_rastreo,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._mostrar_marco("menu"),
+            command=self._volver_al_menu_principal,
         ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
             self._marco_rastreo,
@@ -1138,7 +1176,7 @@ class AplicacionInventario(tk.Tk):
             self._marco_escritura,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._mostrar_marco("menu"),
+            command=self._volver_al_menu_principal,
         ).pack(anchor="w", padx=8, pady=4)
         tk.Label(
             self._marco_escritura,
@@ -1247,7 +1285,7 @@ class AplicacionInventario(tk.Tk):
             self._marco_hid,
             text="Menú",
             style="Handheld.TButton",
-            command=lambda: self._mostrar_marco("menu"),
+            command=self._volver_al_menu_principal,
         ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
             self._marco_hid,
@@ -1411,6 +1449,7 @@ class AplicacionInventario(tk.Tk):
             self.btn_continuar.config(state="normal")
             self.var_estado_lector.set("Lector: conectado")
             return
+        self._asegurar_puerto_sin_servicio_gatt_conflicto()
         port = self.var_puerto_serial.get().strip()
         port_l = port.lower()
         if port_l.startswith("/dev/ttyusb"):

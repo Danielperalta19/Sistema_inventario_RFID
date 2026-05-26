@@ -20,6 +20,7 @@ Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/default/rfid-hid-gatt
 WorkingDirectory=/home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
 ExecStart=/usr/bin/python3 /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/gatt_server_rfid.py
+ExecStartPost=/bin/bash /home/user/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/systemd/rfid-hid-post-gatt.sh
 Restart=on-failure
 RestartSec=5
 

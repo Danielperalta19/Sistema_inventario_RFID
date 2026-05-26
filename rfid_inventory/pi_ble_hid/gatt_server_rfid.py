@@ -926,9 +926,36 @@ def _maybe_start_rfid_thread():
 ######################################################
 # MAIN
 ######################################################
+def _refrescar_anuncio_ble():
+    """Windows suele quedar en 'emparejado' si advertising/connectable caen tras registrar GATT."""
+    import subprocess
+
+    for args in (
+        ['btmgmt', '-i', 'hci0', 'connectable', 'on'],
+        ['btmgmt', '-i', 'hci0', 'bondable', 'on'],
+        ['btmgmt', '-i', 'hci0', 'advertising', 'on'],
+    ):
+        try:
+            p = subprocess.run(args, capture_output=True, text=True, timeout=20)
+            if p.returncode != 0:
+                print('ble refresh %s rc=%s err=%s' % (args, p.returncode, (p.stderr or '').strip()))
+        except Exception as exc:
+            print('ble refresh %s: %s' % (args, exc))
+    try:
+        subprocess.run(
+            ['hciconfig', 'hci0', 'class', '0x000540'],
+            capture_output=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        print('hciconfig class: %s' % exc)
+    return False
+
+
 def register_app_cb():
     print('GATT application registered')
     _maybe_start_rfid_thread()
+    GLib.idle_add(_refrescar_anuncio_ble)
 
 
 def register_app_error_cb(error):

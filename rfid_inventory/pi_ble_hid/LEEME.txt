@@ -4,7 +4,7 @@ Bluetooth HID (teclado BLE) + puente RFID
   hid_keys.py          — texto → teclas HID
   web/                 — catálogo JSON y página de prueba
   systemd/             — servicios al arrancar la Pi
-  scripts/             — detener/iniciar GATT al cambiar de modo
+  scripts/             — detener/iniciar GATT; reparar_bluetooth_hid.sh (arreglo BLE)
 
 Documentación completa: docs/ (raíz del repo)
   Ver docs/LEEME.txt y docs/PI_BLE_HID.txt
