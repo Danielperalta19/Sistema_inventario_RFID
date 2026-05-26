@@ -409,7 +409,7 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_inicio,
-            text="Sistema de Inventario RFID",
+            text="Sistema de PRUEBA RFID",
             font=("", 15, "bold"),
         ).pack(pady=(28, 6))
 
