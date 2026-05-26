@@ -1,8 +1,43 @@
-"""Proximidad por RSSI para rastreo tipo 'frío/caliente'."""
+"""Proximidad por RSSI para rastreo tipo 'frío/caliente'.
+
+RSSI (Received Signal Strength Indicator) mide potencia recibida en dBm.
+Valores más altos (más cercanos a 0) = señal más fuerte = en general más cerca del tag.
+No es una regla de metros exactos: orientación del tag, metal, personas y multipath cambian la lectura.
+
+Bandas orientativas para lector UHF tipo pistola (interior, potencia típica R200):
+  >= -45 dBm   muy cerca (decenas de cm)
+  -45 .. -55   cerca (~0,5–2 m)
+  -55 .. -65   media (~2–5 m)
+  -65 .. -75   lejos (~5–10 m)
+  -75 .. -85   muy lejos o señal débil
+  < -85        límite de lectura
+
+En espacio libre ideal, ~6 dB menos ≈ el doble de distancia; en edificio la relación es mucho más irregular.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+# Umbrales absolutos (dBm) para texto orientativo en UI / informes.
+_BANDAS_RSSI_DBM: tuple[tuple[float, str], ...] = (
+    (-45.0, "Muy cerca (decenas de cm)"),
+    (-55.0, "Cerca (~0,5–2 m)"),
+    (-65.0, "Distancia media (~2–5 m)"),
+    (-75.0, "Lejos (~5–10 m)"),
+    (-85.0, "Muy lejos (>10 m o señal débil)"),
+)
+
+
+def banda_distancia_aproximada(rssi: int | float | None) -> str:
+    """Clasificación cualitativa a partir del RSSI absoluto (no calibrada en metros reales)."""
+    if rssi is None:
+        return "Sin lectura"
+    r = float(rssi)
+    for umbral, etiqueta in _BANDAS_RSSI_DBM:
+        if r >= umbral:
+            return etiqueta
+    return "Límite / casi sin señal"
 
 
 @dataclass
@@ -67,14 +102,29 @@ class RastreadorProximidad:
         v = 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
         return int(round(v * 100.0))
 
-    def texto_nivel(self) -> str:
+    def texto_nivel_relativo(self) -> str:
+        """Comparación con el rango RSSI visto en esta sesión (frío/caliente al moverse)."""
         lvl = self.nivel_porcentaje()
         if lvl <= 10:
-            return "Sin señal / muy lejos"
+            return "Señal débil en esta sesión"
         if lvl <= 30:
-            return "Alejado"
+            return "Más lejos que antes"
         if lvl <= 60:
             return "Acercándose"
         if lvl <= 85:
-            return "Cerca"
-        return "Muy cerca"
+            return "Cerca (vs. inicio)"
+        return "Máxima señal en esta sesión"
+
+    def texto_nivel(self) -> str:
+        """Alias: prioriza banda absoluta si hay RSSI; si no, nivel relativo."""
+        return self.texto_nivel_completo()
+
+    def texto_nivel_completo(self) -> str:
+        st = self._estado
+        if st is None or st.rssi_suavizado is None:
+            return "Sin señal"
+        absol = banda_distancia_aproximada(st.rssi_suavizado)
+        rel = self.texto_nivel_relativo()
+        if st.ultimo_rssi is not None and absol != banda_distancia_aproximada(st.ultimo_rssi):
+            return f"{absol} · {rel}"
+        return absol

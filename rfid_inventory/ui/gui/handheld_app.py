@@ -18,7 +18,7 @@ import time
 from rfid_inventory.app import Escaner
 from rfid_inventory.app.inventory_presenter import construir_filas_resultado
 from rfid_inventory.app.inventory_service import ServicioInventario
-from rfid_inventory.app.proximity_tracker import RastreadorProximidad
+from rfid_inventory.app.proximity_tracker import RastreadorProximidad, banda_distancia_aproximada
 from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
 from rfid_inventory.app.tracking_service import ServicioRastreo
 from rfid_inventory.app.app_config import cargar_configuracion_aplicacion, hardware_escritura_resuelto
@@ -637,7 +637,7 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_ubicacion,
-            text="Escribe y verás opciones debajo; toca una para elegirla (teclado al tocar el campo).",
+            text="Escribe y verás opciones debajo.",
             font=("", 8),
             fg="#555",
             wraplength=440,
@@ -1025,6 +1025,14 @@ class AplicacionInventario(tk.Tk):
 
         self.barra_proximidad = ttk.Progressbar(prox, orient="horizontal", mode="determinate", maximum=100)
         self.barra_proximidad.pack(fill="x")
+        tk.Label(
+            prox,
+            text="RSSI orientativo (no son metros exactos). Barra = más fuerte vs. al iniciar.",
+            font=("", 7),
+            fg="#666",
+            wraplength=440,
+            justify="left",
+        ).pack(fill="x", pady=(3, 0))
 
         row3 = tk.Frame(self._marco_rastreo)
         row3.pack(fill="x", padx=12, pady=(3, 6))
@@ -1141,8 +1149,14 @@ class AplicacionInventario(tk.Tk):
             nivel = self._rastreador_proximidad.nivel_porcentaje()
             self.barra_proximidad["value"] = nivel
             if estado_prox and estado_prox.rssi_suavizado is not None:
-                self.var_proximidad_estado.set(f"Proximidad: {self._rastreador_proximidad.texto_nivel()}  ({nivel}%)")
-                self.var_proximidad_rssi.set(f"RSSI: {estado_prox.rssi_suavizado:.1f} dBm (último {estado_prox.ultimo_rssi} dBm)")
+                rssi_txt = f"{estado_prox.rssi_suavizado:.0f}"
+                banda = banda_distancia_aproximada(estado_prox.rssi_suavizado)
+                self.var_proximidad_estado.set(
+                    f"{banda}  ({self._rastreador_proximidad.texto_nivel_relativo()}, {nivel}%)"
+                )
+                self.var_proximidad_rssi.set(
+                    f"RSSI: {rssi_txt} dBm (último {estado_prox.ultimo_rssi} dBm)"
+                )
                 if estado_prox.ultima_lectura_ms is not None and instante_ms - estado_prox.ultima_lectura_ms > 1200:
                     self.var_proximidad_estado.set("Proximidad: Sin señal (no se ve el tag)")
             else:
