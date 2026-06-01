@@ -65,12 +65,18 @@ def _texto_ubicacion(edificio, sala):
 
 class AplicacionInventario(tk.Tk):
     _MAX_LINEAS_LOG_ESCANEO = 3
+    _ANCHO_PANTALLA = 480
+    _ALTO_PANTALLA = 320
+    _WRAP_TEXTO = 448  # márgenes ~16 px por lado
 
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
-        self.geometry("480x320")
-        self.minsize(480, 320)
+        self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
+        self.minsize(self._ANCHO_PANTALLA, self._ALTO_PANTALLA)
+        self.maxsize(self._ANCHO_PANTALLA, self._ALTO_PANTALLA)
+        if os.name == "posix":
+            self.resizable(False, False)
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -425,10 +431,10 @@ class AplicacionInventario(tk.Tk):
         except Exception:
             pass
         # Ajuste compacto para 480×320 (Waveshare): balance legibilidad/espacio.
-        style.configure("Treeview", rowheight=16)
+        style.configure("Treeview", rowheight=14, font=("", 8))
         style.configure("Treeview.Heading", font=("", 8, "bold"))
-        style.configure("Handheld.TButton", font=("", 10))
-        style.configure("HandheldBig.TButton", font=("", 12))
+        style.configure("Handheld.TButton", font=("", 9))
+        style.configure("HandheldBig.TButton", font=("", 10))
 
     def _mostrar_marco(self, nombre_marco):
         self._teclado_virtual.ocultar(rapido=True)
@@ -461,38 +467,38 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_inicio,
-            text="Sistema de Inventario RFID",
-            font=("", 15, "bold"),
-        ).pack(pady=(28, 6))
+            text="Inventario RFID",
+            font=("", 12, "bold"),
+        ).pack(pady=(20, 4))
 
         tk.Label(
             self._marco_inicio,
-            text="Pantalla 480×320 · Raspberry Pi",
+            text="480×320",
             font=("", 8),
             fg="#555",
-        ).pack(pady=(0, 14))
+        ).pack(pady=(0, 10))
 
         ttk.Button(
             self._marco_inicio,
             text="Iniciar",
             style="HandheldBig.TButton",
             command=lambda: self._mostrar_marco("menu"),
-        ).pack(fill="x", padx=28, ipady=6)
+        ).pack(fill="x", padx=24, ipady=4)
 
     def _construir_menu(self):
         self._marco_menu = tk.Frame(self.contenedor)
 
         tk.Label(
             self._marco_menu,
-            text="Sistema de Inventario RFID",
-            font=("", 14, "bold"),
-        ).pack(pady=(6, 2))
+            text="Inventario RFID",
+            font=("", 11, "bold"),
+        ).pack(pady=(4, 2))
         tk.Label(
             self._marco_menu,
             text="Elige una opción",
             font=("", 8),
             fg="#555",
-        ).pack(pady=(0, 6))
+        ).pack(pady=(0, 4))
 
         def boton_grande(parent, text, command):
             b = ttk.Button(
@@ -501,7 +507,7 @@ class AplicacionInventario(tk.Tk):
                 style="HandheldBig.TButton",
                 command=command,
             )
-            b.pack(fill="x", padx=14, pady=3, ipady=4)
+            b.pack(fill="x", padx=10, pady=2, ipady=3)
             return b
 
         boton_grande(
@@ -539,16 +545,16 @@ class AplicacionInventario(tk.Tk):
         tk.Label(
             self._marco_conexion,
             text="Inventario en ubicación",
-            font=("", 13, "bold"),
-        ).pack(pady=(3, 2))
+            font=("", 11, "bold"),
+        ).pack(pady=(2, 2))
 
         tk.Label(
             self._marco_conexion,
             text="Conecta el lector RFID al puerto",
             font=("", 8),
-            wraplength=440,
+            wraplength=self._WRAP_TEXTO,
             justify="center",
-        ).pack(pady=(0, 6))
+        ).pack(pady=(0, 4))
 
         row = tk.Frame(self._marco_conexion)
         row.pack(fill="x", padx=12, pady=3)
@@ -591,8 +597,8 @@ class AplicacionInventario(tk.Tk):
 
         self.var_estado_lector = tk.StringVar(value="Lector: desconectado")
         tk.Label(
-            self._marco_conexion, textvariable=self.var_estado_lector, font=("", 8), wraplength=440, justify="center"
-        ).pack(fill="x", padx=12, pady=(6, 6))
+            self._marco_conexion, textvariable=self.var_estado_lector, font=("", 8), wraplength=self._WRAP_TEXTO, justify="center"
+        ).pack(fill="x", padx=10, pady=(4, 4))
 
         self.btn_continuar = ttk.Button(
             self._marco_conexion,
@@ -601,7 +607,7 @@ class AplicacionInventario(tk.Tk):
             command=self._continuar_tras_conexion_inventario,
             state="disabled",
         )
-        self.btn_continuar.pack(pady=4, ipadx=16, ipady=6)
+        self.btn_continuar.pack(pady=4, ipadx=12, ipady=4)
 
     def _abrir_pantalla_conexion_inventario(self):
         """Solo inventario por ubicación usa el puerto serial; aquí se detiene GATT si comparte puerto."""
@@ -631,21 +637,21 @@ class AplicacionInventario(tk.Tk):
     def _construir_ubicacion(self):
         self._marco_ubicacion = tk.Frame(self.contenedor)
 
-        tk.Label(self._marco_ubicacion, text="Ubicación del inventario", font=("", 11, "bold")).pack(
-            anchor="w", padx=12, pady=(8, 6)
+        tk.Label(self._marco_ubicacion, text="Ubicación", font=("", 10, "bold")).pack(
+            anchor="w", padx=10, pady=(6, 4)
         )
 
         tk.Label(
             self._marco_ubicacion,
-            text="Escribe y verás opciones debajo.",
-            font=("", 8),
+            text="Escribe y elige de la lista.",
+            font=("", 7),
             fg="#555",
-            wraplength=440,
-        ).pack(anchor="w", padx=12, pady=(0, 4))
+            wraplength=self._WRAP_TEXTO,
+        ).pack(anchor="w", padx=10, pady=(0, 2))
 
         row_b = tk.Frame(self._marco_ubicacion)
-        row_b.pack(fill="x", padx=12, pady=4)
-        tk.Label(row_b, text="Edificio:", font=("", 10)).pack(anchor="w")
+        row_b.pack(fill="x", padx=10, pady=2)
+        tk.Label(row_b, text="Edificio:", font=("", 9)).pack(anchor="w")
         buildings = sorted(list(self._ubicaciones_anidadas.keys()))
         self.var_edificio = tk.StringVar(value="")
         self.campo_edificio = CampoAutocompletado(
@@ -653,37 +659,41 @@ class AplicacionInventario(tk.Tk):
             textvariable=self.var_edificio,
             opciones=buildings,
             al_cambiar=self._al_texto_edificio_cambio,
-            font=("", 10),
-            max_visible=5,
+            font=("", 9),
+            max_visible=4,
         )
-        self.campo_edificio.pack(fill="x", pady=(2, 0))
+        self.campo_edificio.pack(fill="x", pady=(1, 0))
 
         row_r = tk.Frame(self._marco_ubicacion)
-        row_r.pack(fill="x", padx=12, pady=6)
-        tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
+        row_r.pack(fill="x", padx=10, pady=4)
+        tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 9)).pack(anchor="w")
         self.var_sala = tk.StringVar(value="")
         self.campo_sala = CampoAutocompletado(
             row_r,
             textvariable=self.var_sala,
             opciones=[],
             al_cambiar=self._actualizar_pista_ubicacion,
-            font=("", 10),
-            max_visible=5,
+            font=("", 9),
+            max_visible=4,
         )
-        self.campo_sala.pack(fill="x", pady=(2, 0))
+        self.campo_sala.pack(fill="x", pady=(1, 0))
         self.campo_sala.habilitar(False)
 
         self._edificio_ubicacion_activo = None
         self.var_edificio.trace_add("write", self._al_texto_edificio_cambio)
 
         self.var_pista_ubicacion = tk.StringVar(value="")
-        tk.Label(self._marco_ubicacion, textvariable=self.var_pista_ubicacion, font=("", 8), fg="#444", wraplength=440).pack(
-            fill="x", padx=12, pady=(3, 6)
-        )
+        tk.Label(
+            self._marco_ubicacion,
+            textvariable=self.var_pista_ubicacion,
+            font=("", 7),
+            fg="#444",
+            wraplength=self._WRAP_TEXTO,
+        ).pack(fill="x", padx=10, pady=(2, 4))
         self._actualizar_pista_ubicacion()
 
         row_btns = tk.Frame(self._marco_ubicacion)
-        row_btns.pack(fill="x", side="bottom", pady=8)
+        row_btns.pack(fill="x", side="bottom", pady=6)
 
         ttk.Button(
             row_btns,
@@ -772,14 +782,14 @@ class AplicacionInventario(tk.Tk):
             tree_wrap,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=9,
+            height=7,
         )
-        self.arbol_escaneo.heading("status", text="Estado")
+        self.arbol_escaneo.heading("status", text="Est.")
         self.arbol_escaneo.heading("epc", text="Activo")
         self.arbol_escaneo.heading("rssi", text="RSSI")
-        self.arbol_escaneo.column("status", width=88, anchor="center")
-        self.arbol_escaneo.column("epc", width=250, anchor="w")
-        self.arbol_escaneo.column("rssi", width=48, anchor="center")
+        self.arbol_escaneo.column("status", width=62, anchor="center", stretch=False)
+        self.arbol_escaneo.column("epc", width=168, anchor="w", stretch=True)
+        self.arbol_escaneo.column("rssi", width=36, anchor="center", stretch=False)
         vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.arbol_escaneo.yview)
         self.arbol_escaneo.configure(yscrollcommand=vsb_s.set)
         self.arbol_escaneo.pack(side="left", fill="both", expand=True)
@@ -846,13 +856,13 @@ class AplicacionInventario(tk.Tk):
         self._marco_resultados = tk.Frame(self.contenedor)
 
         head = tk.Frame(self._marco_resultados)
-        head.pack(fill="x", padx=10, pady=(8, 4))
+        head.pack(fill="x", padx=8, pady=(4, 2))
 
         self.var_linea_ubicacion_resultados = tk.StringVar(value="Ubicación: ")
         self.var_linea_estadisticas_resultados = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
 
-        tk.Label(head, textvariable=self.var_linea_ubicacion_resultados, font=("", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(head, textvariable=self.var_linea_estadisticas_resultados, font=("", 10), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.var_linea_ubicacion_resultados, font=("", 9, "bold"), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.var_linea_estadisticas_resultados, font=("", 8), anchor="w").pack(fill="x")
 
         filt = tk.Frame(self._marco_resultados)
         filt.pack(fill="x", padx=8, pady=(2, 4))
@@ -874,14 +884,14 @@ class AplicacionInventario(tk.Tk):
             tree_frame,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=7,
+            height=6,
         )
-        self.arbol_resultados.heading("status", text="Estado")
+        self.arbol_resultados.heading("status", text="Est.")
         self.arbol_resultados.heading("epc", text="Activo")
         self.arbol_resultados.heading("rssi", text="RSSI")
-        self.arbol_resultados.column("status", width=96, anchor="center")
-        self.arbol_resultados.column("epc", width=270, anchor="w")
-        self.arbol_resultados.column("rssi", width=52, anchor="center")
+        self.arbol_resultados.column("status", width=62, anchor="center", stretch=False)
+        self.arbol_resultados.column("epc", width=168, anchor="w", stretch=True)
+        self.arbol_resultados.column("rssi", width=36, anchor="center", stretch=False)
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.arbol_resultados.yview)
         self.arbol_resultados.configure(yscrollcommand=vsb.set)
         self.arbol_resultados.pack(side="left", fill="both", expand=True)
@@ -900,36 +910,36 @@ class AplicacionInventario(tk.Tk):
         self._chip_leyenda(legend, "ACTIVO NUEVO", "#90EE90").pack(side="left")
 
         row = tk.Frame(self._marco_resultados)
-        row.pack(fill="x", pady=(6, 10))
+        row.pack(fill="x", pady=(4, 6))
 
         btns = tk.Frame(row)
-        btns.pack(fill="x", padx=12)
+        btns.pack(fill="x", padx=8)
 
         ttk.Button(
             btns,
             text="Nuevo escaneo",
             style="HandheldBig.TButton",
             command=self._nuevo_escaneo_desde_resultados,
-        ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
+        ).pack(side="left", fill="x", expand=True, ipadx=4, ipady=2, padx=(0, 4))
 
         ttk.Button(
             btns,
             text="Subir reporte",
             style="HandheldBig.TButton",
             command=self._exportar_tipo_ubicacion_actualizado,
-        ).pack(side="left", fill="x", expand=True, ipadx=8, ipady=4, padx=(0, 6))
+        ).pack(side="left", fill="x", expand=True, ipadx=4, ipady=2, padx=(0, 4))
 
         ttk.Button(
             btns,
             text="Menú",
             style="HandheldBig.TButton",
             command=self._volver_menu_desde_resultados,
-        ).pack(side="right", fill="x", expand=True, ipadx=8, ipady=4, padx=(6, 0))
+        ).pack(side="right", fill="x", expand=True, ipadx=4, ipady=2, padx=(4, 0))
 
     def _construir_detalle(self):
         self._marco_detalle = tk.Frame(self.contenedor)
 
-        tk.Label(self._marco_detalle, text="Detalle de activo", font=("", 12, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
+        tk.Label(self._marco_detalle, text="Detalle de activo", font=("", 10, "bold")).pack(anchor="w", padx=10, pady=(8, 4))
 
         box = tk.Frame(self._marco_detalle)
         box.pack(fill="both", expand=True, padx=12)
@@ -943,7 +953,9 @@ class AplicacionInventario(tk.Tk):
             r = tk.Frame(box)
             r.pack(fill="x", pady=4)
             tk.Label(r, text=lbl, font=("", 9), width=18, anchor="w").pack(side="left")
-            tk.Label(r, textvariable=var, font=("", 9), wraplength=320, justify="left", anchor="w").pack(side="left")
+            tk.Label(r, textvariable=var, font=("", 8), wraplength=280, justify="left", anchor="w").pack(
+                side="left"
+            )
 
         self.var_detalle_codigo_activo = tk.StringVar(value="")
         fila_detalle("Activo:", self.var_detalle_codigo_activo)
@@ -977,21 +989,21 @@ class AplicacionInventario(tk.Tk):
             text="Menú",
             style="Handheld.TButton",
             command=self._volver_al_menu_principal,
-        ).pack(anchor="w", padx=8, pady=6)
+        ).pack(anchor="w", padx=8, pady=4)
         tk.Label(
             self._marco_rastreo,
             text="Rastrear activo",
-            font=("", 13, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 4))
+            font=("", 11, "bold"),
+        ).pack(anchor="w", padx=10, pady=(0, 2))
 
         tk.Label(
             self._marco_rastreo,
             text="Busca por código de activo.",
             font=("", 8),
-            wraplength=440,
+            wraplength=self._WRAP_TEXTO,
             justify="left",
             fg="#444",
-        ).pack(anchor="w", padx=12, pady=(0, 4))
+        ).pack(anchor="w", padx=10, pady=(0, 2))
 
         row = tk.Frame(self._marco_rastreo)
         row.pack(fill="x", padx=12, pady=3)
@@ -1010,9 +1022,9 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(box, textvariable=self.var_rastreo_activo, font=("", 10, "bold"), anchor="w").pack(fill="x")
         tk.Label(box, textvariable=self.var_rastreo_epc, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(1, 4))
-        tk.Label(box, textvariable=self.var_rastreo_ubicacion, font=("", 9), wraplength=440, justify="left", anchor="w").pack(
-            fill="x"
-        )
+        tk.Label(
+            box, textvariable=self.var_rastreo_ubicacion, font=("", 8), wraplength=self._WRAP_TEXTO, justify="left", anchor="w"
+        ).pack(fill="x")
 
         # Proximidad (frío/caliente)
         prox = tk.Frame(self._marco_rastreo)
@@ -1030,7 +1042,7 @@ class AplicacionInventario(tk.Tk):
             text="RSSI orientativo (no son metros exactos). Barra = más fuerte vs. al iniciar.",
             font=("", 7),
             fg="#666",
-            wraplength=440,
+            wraplength=self._WRAP_TEXTO,
             justify="left",
         ).pack(fill="x", pady=(3, 0))
 
@@ -1195,8 +1207,8 @@ class AplicacionInventario(tk.Tk):
         tk.Label(
             self._marco_escritura,
             text="Escribir tag",
-            font=("", 14, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 4))
+            font=("", 11, "bold"),
+        ).pack(anchor="w", padx=10, pady=(0, 4))
 
         box = tk.Frame(self._marco_escritura)
         box.pack(fill="both", expand=True, padx=12, pady=(2, 4))
@@ -1219,7 +1231,7 @@ class AplicacionInventario(tk.Tk):
         self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
 
         tk.Label(box, textvariable=self.var_escritura_epc_nuevo, font=("", 9), anchor="w").pack(fill="x", pady=(8, 2))
-        tk.Label(box, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", wraplength=440, justify="left").pack(
+        tk.Label(box, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", wraplength=self._WRAP_TEXTO, justify="left").pack(
             fill="x", pady=(2, 0)
         )
 
@@ -1300,27 +1312,27 @@ class AplicacionInventario(tk.Tk):
             text="Menú",
             style="Handheld.TButton",
             command=self._volver_al_menu_principal,
-        ).pack(anchor="w", padx=8, pady=6)
+        ).pack(anchor="w", padx=8, pady=4)
         tk.Label(
             self._marco_hid,
             text="Modo teclado (Bluetooth)",
-            font=("", 14, "bold"),
-        ).pack(anchor="w", padx=12, pady=(0, 6))
+            font=("", 11, "bold"),
+        ).pack(anchor="w", padx=10, pady=(0, 4))
         tk.Label(
             self._marco_hid,
             text="Empareja la pistola con la laptop. Si ya se ha hecho antes, primero olvida el dispositivo en la laptop. Después, empareja de nuevo.",
-            font=("", 9),
-            wraplength=440,
+            font=("", 8),
+            wraplength=self._WRAP_TEXTO,
             justify="left",
-        ).pack(anchor="w", padx=12, pady=2)
+        ).pack(anchor="w", padx=10, pady=2)
         tk.Label(
             self._marco_hid,
             text="Para inventario otra vez regresar a menú.",
             font=("", 8),
             fg="#444",
-            wraplength=440,
+            wraplength=self._WRAP_TEXTO,
             justify="left",
-        ).pack(anchor="w", padx=12, pady=(6, 2))
+        ).pack(anchor="w", padx=10, pady=(4, 2))
 
     def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")

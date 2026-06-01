@@ -1,9 +1,12 @@
-"""Teclado en pantalla QWERTY ."""
+"""Teclado en pantalla QWERTY (superposición, no redimensiona el contenido)."""
+
+from __future__ import annotations
 
 import tkinter as tk
 
 
-class TecladoVirtual(tk.Frame):
+class TecladoVirtual:
+    """Panel flotante sobre la ventana (~50 % inferior), sin ``pack`` en el contenedor principal."""
 
     _FILAS_QWERTY = (
         "1234567890",
@@ -11,40 +14,36 @@ class TecladoVirtual(tk.Frame):
         "ASDFGHJKL",
         "ZXCVBNM",
     )
-    _PASOS_ANIM = 14
-    _MS_ANIM = 200
+    _FRACCION_ALTURA = 0.5
     _COLOR_FONDO = "#d1d5db"
     _COLOR_TECLA = "#ffffff"
     _COLOR_TECLA_ACT = "#c7ccd4"
     _COLOR_TECLA_FN = "#b8bec8"
     _COLOR_BORDE = "#a8afb9"
 
-    def __init__(self, master, **kwargs):
-        self._clip = tk.Frame(master, height=0, bg=self._COLOR_FONDO, highlightthickness=0)
-        self._clip.pack(side="bottom", fill="x")
-        self._clip.pack_propagate(False)
+    def __init__(self, root: tk.Misc) -> None:
+        self._root = root.winfo_toplevel()
+        self._entrada: tk.Widget | None = None
+        self._tarea_ocultar: str | None = None
+        self._visible = False
 
-        super().__init__(self._clip, bg=self._COLOR_FONDO, highlightthickness=0, **kwargs)
-        self.pack(side="bottom", fill="x")
+        self._panel = tk.Frame(
+            self._root,
+            bg=self._COLOR_FONDO,
+            highlightthickness=2,
+            highlightbackground=self._COLOR_BORDE,
+        )
+        cuerpo = tk.Frame(self._panel, bg=self._COLOR_FONDO, padx=3, pady=2)
+        cuerpo.pack(fill="both", expand=True)
+        self._construir_teclas(cuerpo)
 
-        self._entrada = None
-        self._ventana: tk.Misc | None = None
-        self._tarea_ocultar = None
-        self._altura_objetivo = 0
-        self._paso_anim = 0
-        self._tarea_anim = None
-        self._ocultando = False
+        self._root.bind("<Configure>", self._al_redimensionar, add="+")
 
-        self._construir_teclas()
-
-    def _construir_teclas(self) -> None:
-        cuerpo = tk.Frame(self, bg=self._COLOR_FONDO, padx=3, pady=3)
-        cuerpo.pack(fill="x")
-
+    def _construir_teclas(self, cuerpo: tk.Frame) -> None:
         for idx, fila_texto in enumerate(self._FILAS_QWERTY):
             fila = tk.Frame(cuerpo, bg=self._COLOR_FONDO)
             fila.pack(fill="x", pady=1)
-            margen = 14 if idx == 2 else (22 if idx == 3 else 0)
+            margen = 12 if idx == 2 else (18 if idx == 3 else 0)
             if margen:
                 tk.Frame(fila, width=margen, bg=self._COLOR_FONDO).pack(side="left")
             for letra in fila_texto:
@@ -102,8 +101,6 @@ class TecladoVirtual(tk.Frame):
         self._entrada = entrada
 
     def instalar_en(self, ventana: tk.Misc) -> None:
-        """Muestra/oculta el teclado al entrar o salir de Entry/Text en ``ventana``."""
-        self._ventana = ventana
         for clase in ("Entry", "Text", "TEntry", "TCombobox"):
             ventana.bind_class(clase, "<FocusIn>", self._al_foco, add="+")
             ventana.bind_class(clase, "<FocusOut>", self._al_perder_foco, add="+")
@@ -134,7 +131,7 @@ class TecladoVirtual(tk.Frame):
     def _al_foco(self, event) -> None:
         if self._tarea_ocultar is not None:
             try:
-                self.after_cancel(self._tarea_ocultar)
+                self._root.after_cancel(self._tarea_ocultar)
             except Exception:
                 pass
             self._tarea_ocultar = None
@@ -150,14 +147,13 @@ class TecladoVirtual(tk.Frame):
     def _al_perder_foco(self, _event=None) -> None:
         if self._tarea_ocultar is not None:
             try:
-                self.after_cancel(self._tarea_ocultar)
+                self._root.after_cancel(self._tarea_ocultar)
             except Exception:
                 pass
-        self._tarea_ocultar = self.after(250, self._ocultar_si_aplica)
+        self._tarea_ocultar = self._root.after(250, self._ocultar_si_aplica)
 
     @staticmethod
     def _focus_seguro(ventana: tk.Misc):
-        """focus_get falla si el foco está en la lista desplegable interna del Combobox."""
         try:
             return ventana.focus_get()
         except (tk.TclError, KeyError):
@@ -165,86 +161,46 @@ class TecladoVirtual(tk.Frame):
 
     def _ocultar_si_aplica(self) -> None:
         self._tarea_ocultar = None
-        ventana = self._ventana or self.winfo_toplevel()
-        w = self._focus_seguro(ventana)
+        w = self._focus_seguro(self._root)
         if w is None:
-            # Popdown del Combobox u otro widget interno: no ocultar el teclado aún.
             return
-        if self._es_descendiente_de(w, self) or self._es_descendiente_de(w, self._clip):
+        if self._es_descendiente_de(w, self._panel):
             return
         if self._widget_es_campo_texto(w):
             return
         self.ocultar()
 
+    def _al_redimensionar(self, _event=None) -> None:
+        if self._visible:
+            self._reposicionar()
+
+    def _reposicionar(self) -> None:
+        self._root.update_idletasks()
+        w = max(self._root.winfo_width(), 1)
+        h = max(self._root.winfo_height(), 1)
+        kh = max(int(h * self._FRACCION_ALTURA), 120)
+        y = h - kh
+        self._panel.place(x=0, y=y, width=w, height=kh)
+        self._panel.lift()
+
     def mostrar(self) -> None:
-        if self._tarea_anim is not None:
-            try:
-                self.after_cancel(self._tarea_anim)
-            except Exception:
-                pass
-            self._tarea_anim = None
-        if self._clip.winfo_ismapped() and not self._ocultando:
-            self.update_idletasks()
-            if self._clip.winfo_height() >= max(self._altura_objetivo, 100):
-                return
-        self._ocultando = False
-        if not self._clip.winfo_ismapped():
-            self._clip.pack(side="bottom", fill="x")
-        self.update_idletasks()
-        self._altura_objetivo = max(self.winfo_reqheight(), 118)
-        self._paso_anim = 0
-        self._animar_altura(0, self._altura_objetivo, mostrando=True)
+        if self._visible:
+            self._reposicionar()
+            self._panel.lift()
+            return
+        self._reposicionar()
+        self._panel.lift()
+        self._visible = True
 
     def ocultar(self, rapido: bool = False) -> None:
-        if not self._clip.winfo_ismapped():
+        del rapido
+        if not self._visible:
             return
-        if self._tarea_anim is not None:
-            try:
-                self.after_cancel(self._tarea_anim)
-            except Exception:
-                pass
-            self._tarea_anim = None
-        if rapido:
-            self._finalizar_ocultar()
-            return
-        self._ocultando = True
-        actual = self._clip.winfo_height()
-        if actual <= 0:
-            self._finalizar_ocultar()
-            return
-        self._altura_objetivo = actual
-        self._paso_anim = 0
-        self._animar_altura(actual, 0, mostrando=False)
+        self._panel.place_forget()
+        self._visible = False
 
     def visible(self) -> bool:
-        return self._clip.winfo_ismapped() and self._clip.winfo_height() > 4
-
-    def _ease_out_cubic(self, t: float) -> float:
-        return 1.0 - (1.0 - t) ** 3
-
-    def _animar_altura(self, desde: int, hasta: int, *, mostrando: bool) -> None:
-        self._paso_anim += 1
-        t = min(1.0, self._paso_anim / self._PASOS_ANIM)
-        t = self._ease_out_cubic(t)
-        altura = int(desde + (hasta - desde) * t)
-        self._clip.configure(height=max(0, altura))
-
-        if self._paso_anim < self._PASOS_ANIM:
-            self._tarea_anim = self.after(
-                max(1, self._MS_ANIM // self._PASOS_ANIM),
-                lambda: self._animar_altura(desde, hasta, mostrando=mostrando),
-            )
-            return
-
-        self._tarea_anim = None
-        self._clip.configure(height=max(0, hasta))
-        if not mostrando or self._ocultando:
-            self._finalizar_ocultar()
-
-    def _finalizar_ocultar(self) -> None:
-        self._ocultando = False
-        self._clip.configure(height=0)
-        self._clip.pack_forget()
+        return self._visible
 
     def _es_campo_texto(self) -> bool:
         if self._entrada is None:
@@ -304,16 +260,16 @@ class TecladoVirtual(tk.Frame):
 
 
 def _demo() -> None:
-    """Prueba"""
     root = tk.Tk()
     root.title("Teclado virtual")
     root.geometry("480x320")
     root.minsize(480, 320)
+    root.maxsize(480, 320)
 
     marco = tk.Frame(root)
-    marco.pack(fill="both", expand=True, padx=12, pady=12)
-    tk.Label(marco, text="Toca el campo:").pack(anchor="w")
-    tk.Entry(marco, font=("", 11)).pack(fill="x", pady=8)
+    marco.pack(fill="both", expand=True, padx=8, pady=8)
+    tk.Label(marco, text="Toca el campo (el teclado se superpone):").pack(anchor="w")
+    tk.Entry(marco, font=("", 10)).pack(fill="x", pady=8)
 
     teclado = TecladoVirtual(root)
     teclado.instalar_en(root)
