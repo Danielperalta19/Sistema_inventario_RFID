@@ -15,6 +15,7 @@ class TecladoVirtual:
         "ZXCVBNM",
     )
     _FRACCION_ALTURA = 0.5
+    _ALTURA_MIN = 100
     _COLOR_FONDO = "#d1d5db"
     _COLOR_TECLA = "#ffffff"
     _COLOR_TECLA_ACT = "#c7ccd4"
@@ -174,13 +175,21 @@ class TecladoVirtual:
         if self._visible:
             self._reposicionar()
 
+    def _altura_panel(self, alto_cliente: int) -> int:
+        """Altura del teclado: ~50 % del área cliente, sin pasarse del contenido."""
+        alto_cliente = max(alto_cliente, 1)
+        self._panel.update_idletasks()
+        natural = max(self._panel.winfo_reqheight(), self._ALTURA_MIN)
+        por_fraccion = int(alto_cliente * self._FRACCION_ALTURA)
+        return max(self._ALTURA_MIN, min(natural, por_fraccion, alto_cliente - 2))
+
     def _reposicionar(self) -> None:
         self._root.update_idletasks()
         w = max(self._root.winfo_width(), 1)
         h = max(self._root.winfo_height(), 1)
-        kh = max(int(h * self._FRACCION_ALTURA), 120)
-        y = h - kh
-        self._panel.place(x=0, y=y, width=w, height=kh)
+        kh = self._altura_panel(h)
+        # Anclar al borde inferior del área cliente (no calcular y a mano).
+        self._panel.place(relx=0.0, rely=1.0, x=0, y=0, anchor="sw", relwidth=1.0, height=kh)
         self._panel.lift()
 
     def mostrar(self) -> None:
