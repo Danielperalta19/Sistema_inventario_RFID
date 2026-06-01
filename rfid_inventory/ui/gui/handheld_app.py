@@ -437,35 +437,27 @@ class AplicacionInventario(tk.Tk):
         style.configure("HandheldBig.TButton", font=("", 10))
 
     @staticmethod
-    def _empaquetar_scroll_vertical(parent: tk.Misc) -> tuple[tk.Canvas, tk.Frame]:
-        """Zona central desplazable (rueda Linux 4/5 o barra lateral)."""
-        cont = tk.Frame(parent)
-        cont.pack(fill="both", expand=True)
-        canvas = tk.Canvas(cont, highlightthickness=0, bd=0)
-        sb = ttk.Scrollbar(cont, orient="vertical", command=canvas.yview)
-        inner = tk.Frame(canvas)
-        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+    def _texto_corto(texto: str, max_len: int = 56) -> str:
+        t = (texto or "").strip()
+        if len(t) <= max_len:
+            return t
+        return t[: max_len - 1] + "…"
 
-        def _actualizar_region(_event=None):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+    def _grid_cabecera_pantalla(self, marco: tk.Frame, titulo: str, fila: int = 0) -> None:
+        marco.columnconfigure(1, weight=1)
+        ttk.Button(
+            marco,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._volver_al_menu_principal,
+        ).grid(row=fila, column=0, sticky="w", padx=(6, 4), pady=2)
+        tk.Label(marco, text=titulo, font=("", 9, "bold")).grid(row=fila, column=1, sticky="w", pady=2)
 
-        def _ajustar_ancho(event):
-            canvas.itemconfigure(win, width=event.width)
-
-        def _rueda(event):
-            paso = -1 if event.num == 5 or getattr(event, "delta", 0) < 0 else 1
-            canvas.yview_scroll(paso, "units")
-
-        inner.bind("<Configure>", _actualizar_region)
-        canvas.bind("<Configure>", _ajustar_ancho)
-        for seq in ("<Button-4>", "<Button-5>"):
-            canvas.bind(seq, _rueda)
-            inner.bind(seq, _rueda)
-
-        canvas.configure(yscrollcommand=sb.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-        return canvas, inner
+    def _set_linea_proximidad(self, principal: str, detalle: str = "") -> None:
+        if detalle:
+            self.var_proximidad_linea.set(self._texto_corto("{0}  ·  {1}".format(principal, detalle), 72))
+        else:
+            self.var_proximidad_linea.set(self._texto_corto(principal, 72))
 
     def _mostrar_marco(self, nombre_marco):
         self._teclado_virtual.ocultar(rapido=True)
@@ -968,120 +960,94 @@ class AplicacionInventario(tk.Tk):
         ).pack(side="right", fill="x", expand=True, ipadx=4, ipady=2, padx=(4, 0))
 
     def _construir_detalle(self):
-        self._marco_detalle = tk.Frame(self.contenedor)
+        m = self._marco_detalle = tk.Frame(self.contenedor)
+        m.columnconfigure(1, weight=1)
 
-        pie = tk.Frame(self._marco_detalle)
-        pie.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
+        pie = tk.Frame(m)
+        pie.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
         ttk.Button(
             pie,
             text="Volver",
             style="HandheldBig.TButton",
             command=lambda: self._mostrar_marco("resultados"),
-        ).pack(side="left", fill="x", expand=True, padx=(0, 4), ipady=2)
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 3), ipady=1)
         ttk.Button(
             pie,
             text="Menú",
             style="Handheld.TButton",
             command=self._volver_menu_desde_resultados,
-        ).pack(side="right", fill="x", expand=True, padx=(4, 0), ipady=2)
+        ).grid(row=0, column=1, sticky="ew", padx=(3, 0), ipady=1)
 
-        tk.Label(self._marco_detalle, text="Detalle de activo", font=("", 10, "bold")).pack(
-            side="top", anchor="w", padx=10, pady=(6, 2)
-        )
-
-        _, box = self._empaquetar_scroll_vertical(self._marco_detalle)
+        tk.Label(m, text="Detalle", font=("", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=6, pady=2)
 
         self.var_detalle_epc = tk.StringVar(value="")
         self.var_detalle_estado = tk.StringVar(value="")
         self.var_detalle_ubicacion = tk.StringVar(value="")
         self.var_detalle_rssi = tk.StringVar(value="")
+        self.var_detalle_codigo_activo = tk.StringVar(value="")
 
-        def fila_detalle(lbl, var):
-            r = tk.Frame(box)
-            r.pack(fill="x", pady=2)
-            tk.Label(r, text=lbl, font=("", 8), width=16, anchor="w").pack(side="left")
-            tk.Label(r, textvariable=var, font=("", 8), wraplength=260, justify="left", anchor="w").pack(
-                side="left"
+        def fila_detalle(fila: int, lbl: str, var: tk.StringVar) -> None:
+            tk.Label(m, text=lbl, font=("", 8), width=7, anchor="w").grid(row=fila, column=0, sticky="nw", padx=(6, 2))
+            tk.Label(m, textvariable=var, font=("", 8), wraplength=400, justify="left", anchor="w").grid(
+                row=fila, column=1, sticky="w"
             )
 
-        self.var_detalle_codigo_activo = tk.StringVar(value="")
-        fila_detalle("Activo:", self.var_detalle_codigo_activo)
-        fila_detalle("EPC:", self.var_detalle_epc)
-        fila_detalle("Estado:", self.var_detalle_estado)
-        fila_detalle("Ubicación:", self.var_detalle_ubicacion)
-        fila_detalle("RSSI:", self.var_detalle_rssi)
+        fila_detalle(1, "Activo:", self.var_detalle_codigo_activo)
+        fila_detalle(2, "EPC:", self.var_detalle_epc)
+        fila_detalle(3, "Estado:", self.var_detalle_estado)
+        fila_detalle(4, "Ubic.:", self.var_detalle_ubicacion)
+        fila_detalle(5, "RSSI:", self.var_detalle_rssi)
 
     def _volver_menu_desde_resultados(self):
         """Salir del flujo de inventario a menú principal."""
         self._volver_al_menu_principal()
 
     def _construir_rastreo(self):
-        self._marco_rastreo = tk.Frame(self.contenedor)
+        m = self._marco_rastreo = tk.Frame(self.contenedor)
+        m.columnconfigure(0, weight=1)
 
-        # Pie fijo abajo (empaquetar primero para que no quede fuera de 320 px)
-        row3 = tk.Frame(self._marco_rastreo)
-        row3.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
-        self.btn_proximidad_iniciar = ttk.Button(
-            row3, text="Iniciar rastreo", style="HandheldBig.TButton", command=self._proximidad_iniciar
-        )
-        self.btn_proximidad_iniciar.pack(side="left", fill="x", expand=True, padx=(0, 4), ipady=2)
-        self.btn_proximidad_detener = ttk.Button(
-            row3, text="Detener", style="HandheldBig.TButton", command=self._proximidad_detener, state="disabled"
-        )
-        self.btn_proximidad_detener.pack(side="right", fill="x", expand=True, padx=(4, 0), ipady=2)
+        self._grid_cabecera_pantalla(m, "Rastrear activo", fila=0)
 
-        prox = tk.Frame(self._marco_rastreo)
-        prox.pack(side="bottom", fill="x", padx=10, pady=(0, 4))
-        self.var_proximidad_estado = tk.StringVar(value="Proximidad: —")
-        self.var_proximidad_rssi = tk.StringVar(value="RSSI: —")
-        tk.Label(prox, textvariable=self.var_proximidad_estado, font=("", 9, "bold"), anchor="w").pack(fill="x")
-        tk.Label(prox, textvariable=self.var_proximidad_rssi, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(0, 2))
-        self.barra_proximidad = ttk.Progressbar(prox, orient="horizontal", mode="determinate", maximum=100)
-        self.barra_proximidad.pack(fill="x")
-
-        ttk.Button(
-            self._marco_rastreo,
-            text="Menú",
-            style="Handheld.TButton",
-            command=self._volver_al_menu_principal,
-        ).pack(side="top", anchor="w", padx=8, pady=(4, 0))
-        tk.Label(self._marco_rastreo, text="Rastrear activo", font=("", 10, "bold")).pack(
-            side="top", anchor="w", padx=10, pady=(0, 2)
-        )
-
-        row = tk.Frame(self._marco_rastreo)
-        row.pack(side="top", fill="x", padx=10, pady=(0, 4))
+        busq = tk.Frame(m)
+        busq.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0)
+        busq.columnconfigure(0, weight=1)
         self.var_rastreo_busqueda = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.var_rastreo_busqueda, font=("", 9)).pack(
-            side="left", fill="x", expand=True, padx=(0, 4)
-        )
-        ttk.Button(row, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).pack(side="left", padx=(0, 2))
-        ttk.Button(row, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).pack(
-            side="left"
+        tk.Entry(busq, textvariable=self.var_rastreo_busqueda, font=("", 9)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(busq, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).grid(row=0, column=1, padx=(0, 2))
+        ttk.Button(busq, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).grid(
+            row=0, column=2
         )
 
-        _, box = self._empaquetar_scroll_vertical(self._marco_rastreo)
-        self.var_rastreo_activo = tk.StringVar(value="Activo: —")
-        self.var_rastreo_epc = tk.StringVar(value="EPC: —")
-        self.var_rastreo_ubicacion = tk.StringVar(value="Ubicación: —")
-        tk.Label(box, textvariable=self.var_rastreo_activo, font=("", 9, "bold"), anchor="w").pack(fill="x")
-        tk.Label(box, textvariable=self.var_rastreo_epc, font=("", 8), fg="#444", anchor="w").pack(fill="x", pady=(0, 2))
-        tk.Label(
-            box,
-            textvariable=self.var_rastreo_ubicacion,
-            font=("", 8),
-            wraplength=self._WRAP_TEXTO,
-            justify="left",
-            anchor="w",
-        ).pack(fill="x")
-        tk.Label(
-            box,
-            text="RSSI orientativo; la barra indica señal relativa.",
-            font=("", 7),
-            fg="#666",
-            wraplength=self._WRAP_TEXTO,
-            justify="left",
-        ).pack(fill="x", pady=(4, 0))
+        self.var_rastreo_linea = tk.StringVar(value="Activo / EPC: —")
+        tk.Label(m, textvariable=self.var_rastreo_linea, font=("", 8), anchor="w", wraplength=468).grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+        self.var_rastreo_ubicacion = tk.StringVar(value="Ubic.: —")
+        tk.Label(m, textvariable=self.var_rastreo_ubicacion, font=("", 8), anchor="w", wraplength=468).grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+
+        self.var_proximidad_linea = tk.StringVar(value="Proximidad: —")
+        tk.Label(m, textvariable=self.var_proximidad_linea, font=("", 8), anchor="w", wraplength=468).grid(
+            row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 0)
+        )
+        self.barra_proximidad = ttk.Progressbar(m, orient="horizontal", mode="determinate", maximum=100)
+        self.barra_proximidad.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 2))
+
+        pie = tk.Frame(m)
+        pie.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
+        self.btn_proximidad_iniciar = ttk.Button(
+            pie, text="Iniciar", style="HandheldBig.TButton", command=self._proximidad_iniciar
+        )
+        self.btn_proximidad_iniciar.grid(row=0, column=0, sticky="ew", padx=(0, 3), ipady=1)
+        self.btn_proximidad_detener = ttk.Button(
+            pie, text="Detener", style="HandheldBig.TButton", command=self._proximidad_detener, state="disabled"
+        )
+        self.btn_proximidad_detener.grid(row=0, column=1, sticky="ew", padx=(3, 0), ipady=1)
 
     def _entrar_rastreo(self):
         # Evita que el scanner quede leyendo en background.
@@ -1101,20 +1067,23 @@ class AplicacionInventario(tk.Tk):
         if not resultado_rastreo:
             messagebox.showinfo("Rastreo", "Escribe un EPC (hex) o un código de activo.")
             return
-        self.var_rastreo_activo.set("Activo: {0}".format(resultado_rastreo.codigo_activo or "(desconocido)"))
-        self.var_rastreo_epc.set("EPC: {0}".format(resultado_rastreo.epc_en_hex))
+        codigo = resultado_rastreo.codigo_activo or "?"
+        epc = resultado_rastreo.epc_en_hex or "—"
+        self.var_rastreo_linea.set(
+            self._texto_corto("Act. {0} · EPC {1}".format(codigo, epc), 64)
+        )
         if not resultado_rastreo.ubicaciones:
-            self.var_rastreo_ubicacion.set("Ubicación esperada: (no encontrado en catálogo)")
+            ubic_txt = "(sin ubicación en catálogo)"
         elif len(resultado_rastreo.ubicaciones) == 1:
-            self.var_rastreo_ubicacion.set("Ubicación esperada: {0}".format(resultado_rastreo.ubicaciones[0]))
+            ubic_txt = resultado_rastreo.ubicaciones[0]
         else:
-            ubicaciones_lista = resultado_rastreo.ubicaciones
-            self.var_rastreo_ubicacion.set("Ubicación esperada: " + " | ".join(ubicaciones_lista[:4]) + (" ..." if len(ubicaciones_lista) > 4 else ""))
-        # Reset de proximidad con el EPC objetivo
+            ubic_txt = " | ".join(resultado_rastreo.ubicaciones[:2])
+            if len(resultado_rastreo.ubicaciones) > 2:
+                ubic_txt += " …"
+        self.var_rastreo_ubicacion.set(self._texto_corto("Ubic.: " + ubic_txt, 64))
         self._rastreador_proximidad.reiniciar(resultado_rastreo.epc_en_hex)
         self.barra_proximidad["value"] = 0
-        self.var_proximidad_estado.set("Proximidad: listo")
-        self.var_proximidad_rssi.set("RSSI: —")
+        self._set_linea_proximidad("Listo para rastrear", "RSSI —")
 
     def _proximidad_ajustar_controles(self, activa: bool):
         self._proximidad_activa = bool(activa)
@@ -1139,7 +1108,7 @@ class AplicacionInventario(tk.Tk):
 
         # Modo simulación (demostrativo): RSSI inventado que varía.
         if self._forzar_sim_proximidad or (not self._lector.connected):
-            self.var_proximidad_estado.set("Proximidad: simulación (demo)")
+            self._set_linea_proximidad("Simulación (demo)", "RSSI —")
             self._proximidad_iniciar_simulacion()
             self._proximidad_iniciar_actualizacion_ui()
             return
@@ -1193,17 +1162,16 @@ class AplicacionInventario(tk.Tk):
             if estado_prox and estado_prox.rssi_suavizado is not None:
                 rssi_txt = f"{estado_prox.rssi_suavizado:.0f}"
                 banda = banda_distancia_aproximada(estado_prox.rssi_suavizado)
-                self.var_proximidad_estado.set(
-                    f"{banda}  ({self._rastreador_proximidad.texto_nivel_relativo()}, {nivel}%)"
-                )
-                self.var_proximidad_rssi.set(
-                    f"RSSI: {rssi_txt} dBm (último {estado_prox.ultimo_rssi} dBm)"
+                self._set_linea_proximidad(
+                    "{0} ({1}, {2}%)".format(
+                        banda, self._rastreador_proximidad.texto_nivel_relativo(), nivel
+                    ),
+                    "RSSI {0} dBm".format(rssi_txt),
                 )
                 if estado_prox.ultima_lectura_ms is not None and instante_ms - estado_prox.ultima_lectura_ms > 1200:
-                    self.var_proximidad_estado.set("Proximidad: Sin señal (no se ve el tag)")
+                    self._set_linea_proximidad("Sin señal", "no se ve el tag")
             else:
-                self.var_proximidad_estado.set("Proximidad: Sin señal")
-                self.var_proximidad_rssi.set("RSSI: —")
+                self._set_linea_proximidad("Sin señal", "RSSI —")
             self._tarea_ui_proximidad = self.after(200, actualizar_proximidad_ui)
 
         self._tarea_ui_proximidad = self.after(100, actualizar_proximidad_ui)
@@ -1227,57 +1195,43 @@ class AplicacionInventario(tk.Tk):
         self._tarea_sim_proximidad = self.after(250, paso_simulacion)
 
     def _construir_escritura(self):
-        self._marco_escritura = tk.Frame(self.contenedor)
+        m = self._marco_escritura = tk.Frame(self.contenedor)
+        m.columnconfigure(1, weight=1)
 
-        pie = tk.Frame(self._marco_escritura)
-        pie.pack(side="bottom", fill="x", padx=10, pady=(0, 6))
-        ttk.Button(pie, text="Escanear", style="HandheldBig.TButton", command=self._escritura_escanear_una_vez).pack(
-            side="left", fill="x", expand=True, padx=(0, 4), ipady=2
-        )
-        ttk.Button(pie, text="Escribir", style="HandheldBig.TButton", command=self._escritura_ejecutar_programacion).pack(
-            side="right", fill="x", expand=True, padx=(4, 0), ipady=2
-        )
+        self._grid_cabecera_pantalla(m, "Escribir etiqueta", fila=0)
 
-        ttk.Button(
-            self._marco_escritura,
-            text="Menú",
-            style="Handheld.TButton",
-            command=self._volver_al_menu_principal,
-        ).pack(side="top", anchor="w", padx=8, pady=(4, 0))
-        tk.Label(self._marco_escritura, text="Escribir etiqueta", font=("", 10, "bold")).pack(
-            side="top", anchor="w", padx=10, pady=(0, 4)
+        self.var_escritura_epc_actual = tk.StringVar(value="EPC act.: —")
+        tk.Label(m, textvariable=self.var_escritura_epc_actual, font=("", 8), anchor="w", wraplength=468).grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0
         )
 
-        _, box = self._empaquetar_scroll_vertical(self._marco_escritura)
-
-        self.var_escritura_epc_actual = tk.StringVar(value="EPC actual: —")
-        self.var_escritura_codigo_actual = tk.StringVar(value="Código actual: —")
-        self.var_escritura_epc_nuevo = tk.StringVar(value="EPC nuevo: —")
-        self.var_escritura_estado = tk.StringVar(value="")
-
-        tk.Label(box, textvariable=self.var_escritura_epc_actual, font=("", 8), anchor="w").pack(fill="x")
-        tk.Label(box, textvariable=self.var_escritura_codigo_actual, font=("", 8), fg="#444", anchor="w").pack(
-            fill="x", pady=(0, 4)
-        )
-
-        row = tk.Frame(box)
-        row.pack(fill="x", pady=2)
-        tk.Label(row, text="Código:", font=("", 9)).pack(side="left")
+        cod = tk.Frame(m)
+        cod.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=2)
+        cod.columnconfigure(1, weight=1)
+        tk.Label(cod, text="Código:", font=("", 8)).grid(row=0, column=0, sticky="w", padx=(0, 4))
         self.var_escritura_codigo_entrada = tk.StringVar(value="")
-        tk.Entry(row, textvariable=self.var_escritura_codigo_entrada, font=("", 9)).pack(
-            side="left", fill="x", expand=True, padx=(4, 0)
-        )
+        tk.Entry(cod, textvariable=self.var_escritura_codigo_entrada, font=("", 9)).grid(row=0, column=1, sticky="ew")
         self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
 
-        tk.Label(box, textvariable=self.var_escritura_epc_nuevo, font=("", 8), anchor="w").pack(fill="x", pady=(4, 2))
-        tk.Label(
-            box,
-            textvariable=self.var_escritura_estado,
-            font=("", 8),
-            fg="#444",
-            wraplength=self._WRAP_TEXTO,
-            justify="left",
-        ).pack(fill="x")
+        self.var_escritura_epc_nuevo = tk.StringVar(value="EPC nuevo: —")
+        tk.Label(m, textvariable=self.var_escritura_epc_nuevo, font=("", 8), anchor="w", wraplength=468).grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+        self.var_escritura_estado = tk.StringVar(value="")
+        tk.Label(m, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", anchor="w", wraplength=468).grid(
+            row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+
+        pie = tk.Frame(m)
+        pie.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
+        ttk.Button(pie, text="Escanear", style="HandheldBig.TButton", command=self._escritura_escanear_una_vez).grid(
+            row=0, column=0, sticky="ew", padx=(0, 3), ipady=1
+        )
+        ttk.Button(pie, text="Escribir", style="HandheldBig.TButton", command=self._escritura_ejecutar_programacion).grid(
+            row=0, column=1, sticky="ew", padx=(3, 0), ipady=1
+        )
 
         # Estado interno
         self._epc_memoria_escritura_actual = ""
@@ -1292,10 +1246,13 @@ class AplicacionInventario(tk.Tk):
             return
 
         self._epc_memoria_escritura_actual = lectura.epc_en_hex
-        suf = " (simulado)" if lectura.simulado else ""
-        self.var_escritura_epc_actual.set(f"EPC actual: {lectura.epc_en_hex}{suf}")
-        self.var_escritura_codigo_actual.set(f"Código actual (si aplica): {lectura.codigo_decodificado or '—'}")
-        self.var_escritura_estado.set("Etiqueta leída. Escribe el código del activo para generar el EPC nuevo.")
+        suf = " (sim)" if lectura.simulado else ""
+        self.var_escritura_epc_actual.set(
+            self._texto_corto("EPC act.: {0}{1}".format(lectura.epc_en_hex, suf), 64)
+        )
+        if lectura.codigo_decodificado:
+            self.var_escritura_codigo_entrada.set(lectura.codigo_decodificado)
+        self.var_escritura_estado.set("Leído. Escribe código si cambia.")
         self._escritura_calcular_nuevo_epc(silent=True)
 
     def _escritura_calcular_nuevo_epc(self, silent: bool = False):
@@ -1310,9 +1267,9 @@ class AplicacionInventario(tk.Tk):
             self.var_escritura_epc_nuevo.set("EPC nuevo: —")
             return
         self._epc_memoria_escritura_nuevo = epc
-        self.var_escritura_epc_nuevo.set(f"EPC nuevo: {epc}  (desde {codigo})")
+        self.var_escritura_epc_nuevo.set(self._texto_corto("EPC nuevo: {0}".format(epc), 64))
         if not silent:
-            self.var_escritura_estado.set("Listo para escribir (simulado).")
+            self.var_escritura_estado.set("Listo para escribir.")
 
     def _escritura_ejecutar_programacion(self):
         if not self._epc_memoria_escritura_nuevo:
@@ -1327,12 +1284,12 @@ class AplicacionInventario(tk.Tk):
 
         epc_anterior = self._epc_memoria_escritura_actual
         self._epc_memoria_escritura_actual = resultado_escritura.epc_nuevo_en_hex
-        codigo = (self.var_escritura_codigo_entrada.get() or "").strip()
-        suf = " (simulado)" if resultado_escritura.simulado else ""
-        self.var_escritura_epc_actual.set(f"EPC actual: {self._epc_memoria_escritura_actual}{suf}")
-        self.var_escritura_codigo_actual.set(f"Código actual (si aplica): {codigo or '—'}")
+        suf = " (sim)" if resultado_escritura.simulado else ""
+        self.var_escritura_epc_actual.set(
+            self._texto_corto("EPC act.: {0}{1}".format(self._epc_memoria_escritura_actual, suf), 64)
+        )
         self.var_escritura_estado.set(
-            estado_escritura_programada(epc_anterior, self._epc_memoria_escritura_actual)
+            self._texto_corto(estado_escritura_programada(epc_anterior, self._epc_memoria_escritura_actual), 64)
         )
         messagebox.showinfo("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
 
