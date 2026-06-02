@@ -50,6 +50,10 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
   Para volver a mostrar la barra de título (pruebas en PC con Linux):
   export RFID_SIN_BARRA_TITULO=0
 
+  La ventana se coloca debajo de lxpanel (~28 px). Si arriba no responde al tacto:
+  export RFID_WM_MARGIN_TOP=32
+  (prueba 24, 28 o 32 según tu barra)
+
 5. Quitar lxpanel de la Pi (opcional, más espacio)
 
   Comenta @lxpanel-pi en:
