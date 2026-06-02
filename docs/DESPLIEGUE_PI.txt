@@ -41,15 +41,10 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Cierra sesión y entra de nuevo.
 
-4. Sin botones de la ventana (minimizar / cerrar) — opcional
+4. Modo sin barra de ventana (kiosk) — más adelante
 
-  Por defecto la app usa ventana normal maximizada (recomendado si hay problemas
-  de tacto o teclado). Para ocultar minimizar/cerrar de la ventana (lxpanel sigue):
-
-  export RFID_SIN_BARRA_TITULO=1
-
-  Si arriba no responde al tacto: export RFID_WM_MARGIN_TOP=32
-  Para salir sin barra de ventana: Menú en la app o pkill -f handheld_app
+  Por ahora usar la app maximizada normal (sin export). El modo
+  RFID_SIN_BARRA_TITULO=1 queda experimental (tacto/teclado en Pi).
 
 5. Quitar lxpanel de la Pi (opcional, más espacio)
 
@@ -62,8 +57,8 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 6. Teclado en la app
 
   No hace falta el teclado del sistema (squeekboard). Al tocar un campo Entry o Text
-  aparece el teclado integrado abajo (dígitos, letras, espacio, borrar, cerrar).
-  Al cambiar de pantalla o pulsar Cerrar se oculta.
+  aparece el teclado integrado abajo (dígitos, letras, ESPACIO, <-, OK).
+  Debe verse la fila inferior completa; si no, reinicia la app tras git pull.
 
 7. Bluetooth (mensaje «Emparejar» en la Pi)
 

@@ -14,8 +14,9 @@ class TecladoVirtual:
         "ASDFGHJKL",
         "ZXCVBNM",
     )
-    _FRACCION_ALTURA = 0.5
-    _ALTURA_MIN = 100
+    _FRACCION_ALTURA_MAX = 0.58  # tope suave; si hace falta menos, se compactan paddings
+    _ALTURA_MIN = 96
+    _MARGEN_INFERIOR_PX = 4
     _COLOR_FONDO = "#d1d5db"
     _COLOR_TECLA = "#ffffff"
     _COLOR_TECLA_ACT = "#c7ccd4"
@@ -47,7 +48,7 @@ class TecladoVirtual:
             highlightthickness=2,
             highlightbackground=self._COLOR_BORDE,
         )
-        cuerpo = tk.Frame(self._panel, bg=self._COLOR_FONDO, padx=3, pady=2)
+        cuerpo = tk.Frame(self._panel, bg=self._COLOR_FONDO, padx=2, pady=1)
         cuerpo.pack(fill="both", expand=True)
         self._construir_teclas(cuerpo)
 
@@ -56,7 +57,7 @@ class TecladoVirtual:
     def _construir_teclas(self, cuerpo: tk.Frame) -> None:
         for idx, fila_texto in enumerate(self._FILAS_QWERTY):
             fila = tk.Frame(cuerpo, bg=self._COLOR_FONDO)
-            fila.pack(fill="x", pady=1)
+            fila.pack(fill="x", pady=0)
             margen = 12 if idx == 2 else (18 if idx == 3 else 0)
             if margen:
                 tk.Frame(fila, width=margen, bg=self._COLOR_FONDO).pack(side="left")
@@ -64,7 +65,7 @@ class TecladoVirtual:
                 self._boton_tecla(fila, letra).pack(side="left", padx=1, expand=True, fill="x")
 
         fila_fn = tk.Frame(cuerpo, bg=self._COLOR_FONDO)
-        fila_fn.pack(fill="x", pady=(2, 0))
+        fila_fn.pack(fill="x", pady=(1, 0))
         self._boton_tecla(fila_fn, "<-", ancho=3, comando=self._borrar, fondo=self._COLOR_TECLA_FN).pack(
             side="left", padx=1, ipadx=2
         )
@@ -110,8 +111,8 @@ class TecladoVirtual:
             highlightbackground=self._COLOR_BORDE,
             takefocus=False,
             command=cmd,
-            padx=2,
-            pady=4,
+            padx=1,
+            pady=2,
         )
 
     def enlazar(self, entrada: tk.Widget) -> None:
@@ -207,12 +208,12 @@ class TecladoVirtual:
             self._reposicionar()
 
     def _altura_panel(self, alto_cliente: int) -> int:
-        """Altura del teclado: ~50 % del área cliente, sin pasarse del contenido."""
+        """Alto del panel = todo el contenido (ESPACIO, <-, OK); antes se recortaba al 50 %."""
         alto_cliente = max(alto_cliente, 1)
         self._panel.update_idletasks()
         natural = max(self._panel.winfo_reqheight(), self._ALTURA_MIN)
-        por_fraccion = int(alto_cliente * self._FRACCION_ALTURA)
-        return max(self._ALTURA_MIN, min(natural, por_fraccion, alto_cliente - 2))
+        max_h = min(alto_cliente - self._MARGEN_INFERIOR_PX, int(alto_cliente * self._FRACCION_ALTURA_MAX))
+        return max(self._ALTURA_MIN, min(natural, max_h))
 
     def _reposicionar(self) -> None:
         self._root.update_idletasks()
