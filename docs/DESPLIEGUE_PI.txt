@@ -41,21 +41,30 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Cierra sesión y entra de nuevo.
 
-4. Quitar la barra de la Pi (opcional)
+4. Sin barra de la ventana (minimizar / cerrar)
 
-  Si quieres más espacio en la TFT, comenta @lxpanel-pi en:
+  En la Pi la app arranca sin decoraciones de ventana (overrideredirect),
+  para que no se pulse cerrar por error. Para salir: botón Menú en la app,
+  o desde SSH: pkill -f handheld_app
+
+  Para volver a mostrar la barra de título (pruebas en PC con Linux):
+  export RFID_SIN_BARRA_TITULO=0
+
+5. Quitar lxpanel de la Pi (opcional, más espacio)
+
+  Comenta @lxpanel-pi en:
 
   nano ~/.config/lxsession/LXDE-pi/autostart
 
   Guarda y vuelve a iniciar sesión.
 
-5. Teclado en la app
+6. Teclado en la app
 
   No hace falta el teclado del sistema (squeekboard). Al tocar un campo Entry o Text
   aparece el teclado integrado abajo (dígitos, letras, espacio, borrar, cerrar).
   Al cambiar de pantalla o pulsar Cerrar se oculta.
 
-6. Bluetooth (mensaje «Emparejar» en la Pi)
+7. Bluetooth (mensaje «Emparejar» en la Pi)
 
   Si la ventana tapa el diálogo del sistema, minimiza la app desde el escritorio
   o usa el panel de Bluetooth de Pi OS antes de entrar al modo teclado desde el menú.

@@ -72,6 +72,12 @@ class AplicacionInventario(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
+        self._modo_kiosk = self._sin_barra_titulo_activo()
+        if self._modo_kiosk:
+            try:
+                self.overrideredirect(True)
+            except tk.TclError:
+                self._modo_kiosk = False
         self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
         self._ventana_maximizada = False
 
@@ -425,25 +431,41 @@ class AplicacionInventario(tk.Tk):
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
+    @staticmethod
+    def _sin_barra_titulo_activo() -> bool:
+        """Sin botones minimizar/maximizar/cerrar (kiosk). Por defecto en Linux/Pi."""
+        raw = os.environ.get("RFID_SIN_BARRA_TITULO", "").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return False
+        if raw in ("1", "true", "yes", "si", "sí", "on"):
+            return True
+        return os.name == "posix"
+
+    def _ocupar_pantalla_completa(self) -> None:
+        sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
+        sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
+        self.geometry("{0}x{1}+0+0".format(sw, sh))
+
     def _maximizar_ventana(self, _event=None) -> None:
-        """Ocupa toda la pantalla (como antes); el WM resuelve panel/barra superior."""
+        """Ocupa toda la pantalla; en kiosk sin barra de título usa geometría completa."""
         self.update_idletasks()
-        maximizado = False
-        try:
-            self.state("zoomed")
-            maximizado = str(self.state()) == "zoomed"
-        except tk.TclError:
-            pass
-        if not maximizado:
+        if self._modo_kiosk:
+            self._ocupar_pantalla_completa()
+        else:
+            maximizado = False
             try:
-                self.attributes("-zoomed", True)
-                maximizado = bool(self.attributes("-zoomed"))
+                self.state("zoomed")
+                maximizado = str(self.state()) == "zoomed"
             except tk.TclError:
                 pass
-        if not maximizado:
-            sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
-            sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
-            self.geometry("{0}x{1}+0+0".format(sw, sh))
+            if not maximizado:
+                try:
+                    self.attributes("-zoomed", True)
+                    maximizado = bool(self.attributes("-zoomed"))
+                except tk.TclError:
+                    pass
+            if not maximizado:
+                self._ocupar_pantalla_completa()
         self._ventana_maximizada = True
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
