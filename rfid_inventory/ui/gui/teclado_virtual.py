@@ -105,6 +105,26 @@ class TecladoVirtual:
         for clase in ("Entry", "Text", "TEntry", "TCombobox"):
             ventana.bind_class(clase, "<FocusIn>", self._al_foco, add="+")
             ventana.bind_class(clase, "<FocusOut>", self._al_perder_foco, add="+")
+            ventana.bind_class(clase, "<Button-1>", self._al_tocar_campo, add="+")
+
+    def activar_para_widget(self, widget) -> None:
+        """Muestra el teclado para un campo (p. ej. tras toque con overrideredirect)."""
+        w = widget
+        if not self._widget_es_campo_texto(w):
+            return
+        campo = getattr(w, "_campo_autocompletado", None)
+        if campo is not None:
+            w = campo.entrada
+        self.enlazar(w)
+        try:
+            self._root.focus_force()
+        except tk.TclError:
+            pass
+        self._enfocar_entrada()
+        self.mostrar()
+
+    def _al_tocar_campo(self, event) -> None:
+        self.activar_para_widget(getattr(event, "widget", None))
 
     @staticmethod
     def _widget_es_campo_texto(w) -> bool:
@@ -142,8 +162,7 @@ class TecladoVirtual:
         campo = getattr(w, "_campo_autocompletado", None)
         if campo is not None:
             w = campo.entrada
-        self.enlazar(w)
-        self.mostrar()
+        self.activar_para_widget(w)
 
     def _al_perder_foco(self, _event=None) -> None:
         if self._tarea_ocultar is not None:

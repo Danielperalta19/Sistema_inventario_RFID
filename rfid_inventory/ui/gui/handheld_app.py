@@ -211,7 +211,7 @@ class AplicacionInventario(tk.Tk):
             detalle = "\n\n".join(errores[:3])
 
             def aviso(d=detalle):
-                messagebox.showwarning(
+                self._msg_warning(
                     "Bluetooth",
                     "No pude dejar el adaptador listo para conectar.\n\n"
                     f"{d}\n\n"
@@ -404,7 +404,7 @@ class AplicacionInventario(tk.Tk):
         if self._advertido_fallo_sudo_gatt:
             return
         self._advertido_fallo_sudo_gatt = True
-        messagebox.showwarning(
+        self._msg_warning(
             "Puerto serial compartido",
             "El servicio «rfid-hid-gatt» usa el mismo puerto que el inventario.\n\n"
             "No pude detenerlo solo (hace falta permitir systemctl sin contraseña).\n"
@@ -437,13 +437,13 @@ class AplicacionInventario(tk.Tk):
 
     @staticmethod
     def _sin_barra_titulo_solicitada() -> bool:
-        """Quita minimizar/maximizar/cerrar de la ventana (no oculta lxpanel)."""
+        """Quita minimizar/maximizar/cerrar (opt-in: export RFID_SIN_BARRA_TITULO=1 en la Pi)."""
         raw = os.environ.get("RFID_SIN_BARRA_TITULO", "").strip().lower()
         if raw in ("0", "false", "no", "off"):
             return False
         if raw in ("1", "true", "yes", "si", "sí", "on"):
             return True
-        return os.name == "posix"
+        return False
 
     def _altura_panel_lxde(self) -> int:
         """Altura del panel superior del escritorio (lxpanel); la ventana va debajo."""
@@ -476,10 +476,57 @@ class AplicacionInventario(tk.Tk):
         alto = max(200, sh - top)
         self.geometry("{0}x{1}+0+{2}".format(sw, alto, top))
 
+    def _restaurar_decoracion_ventana(self) -> bool:
+        if not self._sin_decoracion_ventana:
+            return False
+        try:
+            self.overrideredirect(False)
+            self.update_idletasks()
+            return True
+        except tk.TclError:
+            return False
+
+    def _reaplicar_sin_decoracion(self, habia_decoracion: bool) -> None:
+        if not habia_decoracion:
+            return
+        try:
+            self.overrideredirect(True)
+        except tk.TclError:
+            return
+        self._ventana_sin_decoracion_a_pantalla()
+        self.lift()
+        try:
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+    def _caja_dialogo(self, funcion, titulo: str, mensaje: str, **opciones):
+        opciones.setdefault("parent", self)
+        if not self._sin_decoracion_ventana:
+            return funcion(titulo, mensaje, **opciones)
+        habia = self._restaurar_decoracion_ventana()
+        try:
+            self.lift()
+            self.update_idletasks()
+            return funcion(titulo, mensaje, **opciones)
+        finally:
+            self._reaplicar_sin_decoracion(habia)
+
+    def _msg_info(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showinfo, titulo, mensaje, **opciones)
+
+    def _msg_warning(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showwarning, titulo, mensaje, **opciones)
+
+    def _msg_error(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showerror, titulo, mensaje, **opciones)
+
     def _foco_al_widget_pulsado(self, event) -> None:
-        """Con overrideredirect, el widget pulsado debe recibir foco (sin topmost)."""
         w = getattr(event, "widget", None)
         if w is None or w is self:
+            return
+        if TecladoVirtual._widget_es_campo_texto(w):
+            self._teclado_virtual.activar_para_widget(w)
             return
         try:
             w.focus_set()
@@ -509,6 +556,12 @@ class AplicacionInventario(tk.Tk):
         self._ventana_maximizada = True
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
+        if self._sin_decoracion_ventana:
+            try:
+                self.lift()
+                self.focus_force()
+            except tk.TclError:
+                pass
 
     def _al_mapear_ventana(self, _event=None) -> None:
         if not self._ventana_maximizada:
@@ -736,7 +789,7 @@ class AplicacionInventario(tk.Tk):
 
     def _continuar_tras_conexion_inventario(self):
         if not self._lector.connected:
-            messagebox.showwarning("Lector", "Conecta el lector antes de continuar.")
+            self._msg_warning("Lector", "Conecta el lector antes de continuar.")
             return
         self._mostrar_marco("ubicacion")
 
@@ -1155,7 +1208,7 @@ class AplicacionInventario(tk.Tk):
     def _rastreo_buscar(self):
         resultado_rastreo = self._servicio_rastreo.rastrear(self.var_rastreo_busqueda.get())
         if not resultado_rastreo:
-            messagebox.showinfo("Rastreo", "Escribe un EPC (hex) o un código de activo.")
+            self._msg_info("Rastreo", "Escribe un EPC (hex) o un código de activo.")
             return
         codigo = resultado_rastreo.codigo_activo or "?"
         epc = resultado_rastreo.epc_en_hex or "—"
@@ -1332,7 +1385,7 @@ class AplicacionInventario(tk.Tk):
         try:
             lectura = self._servicio_escritura.escanear_una_etiqueta(self._lector)
         except Exception as e:
-            messagebox.showerror("Escritura", str(e))
+            self._msg_error("Escritura", str(e))
             return
 
         self._epc_memoria_escritura_actual = lectura.epc_en_hex
@@ -1369,7 +1422,7 @@ class AplicacionInventario(tk.Tk):
                 self._lector, self._epc_memoria_escritura_actual, self._epc_memoria_escritura_nuevo
             )
         except Exception as e:
-            messagebox.showerror("Escritura", str(e))
+            self._msg_error("Escritura", str(e))
             return
 
         epc_anterior = self._epc_memoria_escritura_actual
@@ -1381,7 +1434,7 @@ class AplicacionInventario(tk.Tk):
         self.var_escritura_estado.set(
             self._texto_corto(estado_escritura_programada(epc_anterior, self._epc_memoria_escritura_actual), 64)
         )
-        messagebox.showinfo("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
+        self._msg_info("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
 
     def _construir_hid(self):
         """Modo pistola como teclado Bluetooth."""
@@ -1468,11 +1521,11 @@ class AplicacionInventario(tk.Tk):
         """Solo acepta edificio y sala que coincidan exactamente con una opción de la lista."""
         ed = self.campo_edificio.valor_valido()
         if not ed:
-            messagebox.showwarning("Ubicación", "Elige un edificio de la lista.")
+            self._msg_warning("Ubicación", "Elige un edificio de la lista.")
             return False
         sala = self.campo_sala.valor_valido()
         if not sala:
-            messagebox.showwarning("Ubicación", "Elige cubículo / lab / sala de la lista.")
+            self._msg_warning("Ubicación", "Elige cubículo / lab / sala de la lista.")
             return False
         self._al_texto_edificio_cambio()
         return True
@@ -1541,7 +1594,7 @@ class AplicacionInventario(tk.Tk):
                 "  ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null\n"
                 "  lsof /dev/ttyUSB0 2>/dev/null\n"
             )
-            messagebox.showerror("Lector desconectado", mensaje_error)
+            self._msg_error("Lector desconectado", mensaje_error)
 
         try:
             self.after(0, ejecutar_ui)
@@ -1550,7 +1603,7 @@ class AplicacionInventario(tk.Tk):
 
     def conectar_lector(self):
         if self._lector.connected:
-            messagebox.showinfo("Info", "Ya conectado.")
+            self._msg_info("Info", "Ya conectado.")
             self.btn_continuar.config(state="normal")
             self.var_estado_lector.set("Lector: conectado")
             return
@@ -1562,17 +1615,17 @@ class AplicacionInventario(tk.Tk):
         elif port_l.startswith("/dev/ttyacm"):
             port = "/dev/ttyACM" + port[len("/dev/ttyacm") :]
         if not port:
-            messagebox.showerror("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
+            self._msg_error("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
             return
         try:
             baud = int(self.var_baudios.get().strip())
         except ValueError:
-            messagebox.showerror("Error", "Baud inválido.")
+            self._msg_error("Error", "Baud inválido.")
             return
         try:
             self._lector.conectar(port, baud, debug=False)
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            self._msg_error("Error", str(e))
             return
         self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
         self.btn_conectar_lector.config(state="disabled")
@@ -1606,11 +1659,11 @@ class AplicacionInventario(tk.Tk):
             dir_web = os.path.abspath(os.path.join(directorio_actual, "..", "..", "pi_ble_hid", "web"))
             ruta_activos = os.path.join(dir_web, "activosPiso2_Computacion.json")
             if not os.path.isfile(ruta_activos):
-                messagebox.showerror("Actualización", f"No existe:\n{ruta_activos}")
+                self._msg_error("Actualización", f"No existe:\n{ruta_activos}")
                 return
             filas = json.loads(open(ruta_activos, "r", encoding="utf-8").read())
             if not isinstance(filas, list):
-                messagebox.showerror("Actualización", "El JSON de activos no tiene formato de lista.")
+                self._msg_error("Actualización", "El JSON de activos no tiene formato de lista.")
                 return
 
             # Índice por código de activo para recuperar la fila original sin cambiar su estructura.
@@ -1669,7 +1722,7 @@ class AplicacionInventario(tk.Tk):
             ruta_salida = os.path.join(dir_resultados, f"activosPiso2_Computacion_sesion_{ubicacion_segura}_{marca_tiempo}.json")
             open(ruta_salida, "w", encoding="utf-8").write(json.dumps(filas_salida, ensure_ascii=False, indent=2))
 
-            messagebox.showinfo("Actualización", f"Archivo generado:\n{ruta_salida}")
+            self._msg_info("Actualización", f"Archivo generado:\n{ruta_salida}")
         except Exception:
             # No bloquea el flujo principal
             return

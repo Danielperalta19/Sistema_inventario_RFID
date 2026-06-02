@@ -41,17 +41,15 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Cierra sesión y entra de nuevo.
 
-4. Sin botones de la ventana (minimizar / cerrar)
+4. Sin botones de la ventana (minimizar / cerrar) — opcional
 
-  En la Pi, por defecto la app no muestra la barra de la ventana (solo la app;
-  lxpanel / taskbar del escritorio sigue visible). Para salir: Menú en la app
-  o SSH: pkill -f handheld_app
+  Por defecto la app usa ventana normal maximizada (recomendado si hay problemas
+  de tacto o teclado). Para ocultar minimizar/cerrar de la ventana (lxpanel sigue):
 
-  Desactivar (ver barra de título otra vez):
-  export RFID_SIN_BARRA_TITULO=0
+  export RFID_SIN_BARRA_TITULO=1
 
-  Si la parte superior no responde al tacto, ajusta el hueco bajo lxpanel:
-  export RFID_WM_MARGIN_TOP=32
+  Si arriba no responde al tacto: export RFID_WM_MARGIN_TOP=32
+  Para salir sin barra de ventana: Menú en la app o pkill -f handheld_app
 
 5. Quitar lxpanel de la Pi (opcional, más espacio)
 
