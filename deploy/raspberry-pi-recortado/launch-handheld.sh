@@ -5,6 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DEFAULT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 export RFID_REPO_ROOT="${RFID_REPO_ROOT:-${REPO_DEFAULT}}"
+# Sin barra minimizar/cerrar en la ventana (lxpanel sigue). Para desactivar: RFID_SIN_BARRA_TITULO=0
+# Si arriba no responde al tacto: RFID_WM_MARGIN_TOP=32
 
 cd "${RFID_REPO_ROOT}"
 

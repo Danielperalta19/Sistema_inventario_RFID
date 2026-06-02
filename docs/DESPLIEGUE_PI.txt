@@ -41,7 +41,19 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Cierra sesión y entra de nuevo.
 
-4. Quitar lxpanel de la Pi (opcional, más espacio)
+4. Sin botones de la ventana (minimizar / cerrar)
+
+  En la Pi, por defecto la app no muestra la barra de la ventana (solo la app;
+  lxpanel / taskbar del escritorio sigue visible). Para salir: Menú en la app
+  o SSH: pkill -f handheld_app
+
+  Desactivar (ver barra de título otra vez):
+  export RFID_SIN_BARRA_TITULO=0
+
+  Si la parte superior no responde al tacto, ajusta el hueco bajo lxpanel:
+  export RFID_WM_MARGIN_TOP=32
+
+5. Quitar lxpanel de la Pi (opcional, más espacio)
 
   Comenta @lxpanel-pi en:
 
@@ -49,13 +61,13 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
 
   Guarda y vuelve a iniciar sesión.
 
-5. Teclado en la app
+6. Teclado en la app
 
   No hace falta el teclado del sistema (squeekboard). Al tocar un campo Entry o Text
   aparece el teclado integrado abajo (dígitos, letras, espacio, borrar, cerrar).
   Al cambiar de pantalla o pulsar Cerrar se oculta.
 
-6. Bluetooth (mensaje «Emparejar» en la Pi)
+7. Bluetooth (mensaje «Emparejar» en la Pi)
 
   Si la ventana tapa el diálogo del sistema, minimiza la app desde el escritorio
   o usa el panel de Bluetooth de Pi OS antes de entrar al modo teclado desde el menú.

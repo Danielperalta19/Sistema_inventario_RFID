@@ -72,6 +72,12 @@ class AplicacionInventario(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
+        self._sin_decoracion_ventana = self._sin_barra_titulo_solicitada()
+        if self._sin_decoracion_ventana:
+            try:
+                self.overrideredirect(True)
+            except tk.TclError:
+                self._sin_decoracion_ventana = False
         self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
         self._ventana_maximizada = False
 
@@ -117,6 +123,8 @@ class AplicacionInventario(tk.Tk):
 
         self.contenedor = tk.Frame(self)
         self.contenedor.pack(fill="both", expand=True)
+        if self._sin_decoracion_ventana:
+            self.bind("<Button-1>", self._foco_al_widget_pulsado, add="+")
         self._teclado_virtual = TecladoVirtual(self)
 
         self._marco_menu = None
@@ -149,6 +157,8 @@ class AplicacionInventario(tk.Tk):
         self.bind("<Map>", self._al_mapear_ventana, add="+")
         self.after_idle(self._maximizar_ventana)
         self.after(150, self._maximizar_ventana)
+        if self._sin_decoracion_ventana:
+            self.after(300, self._maximizar_ventana)
 
         # En la Pi el puerto serial queda libre para rfid-hid-gatt hasta que el usuario abre inventario.
         if os.name == "posix":
@@ -425,28 +435,77 @@ class AplicacionInventario(tk.Tk):
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
+    @staticmethod
+    def _sin_barra_titulo_solicitada() -> bool:
+        """Quita minimizar/maximizar/cerrar de la ventana (no oculta lxpanel)."""
+        raw = os.environ.get("RFID_SIN_BARRA_TITULO", "").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return False
+        if raw in ("1", "true", "yes", "si", "sí", "on"):
+            return True
+        return os.name == "posix"
+
+    def _altura_panel_lxde(self) -> int:
+        """Altura del panel superior del escritorio (lxpanel); la ventana va debajo."""
+        raw = os.environ.get("RFID_WM_MARGIN_TOP", "").strip()
+        if raw:
+            try:
+                return max(0, int(raw))
+            except ValueError:
+                pass
+        try:
+            if str(self.state()) not in ("withdrawn", "iconic"):
+                ry = int(self.winfo_rooty())
+                if ry > 0:
+                    return ry
+        except tk.TclError:
+            pass
+        return 28 if os.name == "posix" else 0
+
     def _ocupar_pantalla_completa(self) -> None:
         sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
         sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
         self.geometry("{0}x{1}+0+0".format(sw, sh))
 
-    def _maximizar_ventana(self, _event=None) -> None:
-        """Ventana maximizada; el escritorio (lxpanel) sigue visible."""
+    def _ventana_sin_decoracion_a_pantalla(self) -> None:
+        """Sin barra de título: llena el ancho y el alto bajo lxpanel (taskbar intacto)."""
         self.update_idletasks()
-        maximizado = False
+        sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
+        sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
+        top = self._altura_panel_lxde()
+        alto = max(200, sh - top)
+        self.geometry("{0}x{1}+0+{2}".format(sw, alto, top))
+
+    def _foco_al_widget_pulsado(self, event) -> None:
+        """Con overrideredirect, el widget pulsado debe recibir foco (sin topmost)."""
+        w = getattr(event, "widget", None)
+        if w is None or w is self:
+            return
         try:
-            self.state("zoomed")
-            maximizado = str(self.state()) == "zoomed"
+            w.focus_set()
         except tk.TclError:
             pass
-        if not maximizado:
+
+    def _maximizar_ventana(self, _event=None) -> None:
+        """Maximizada con barra del WM, o sin decoración solo en Pi (lxpanel visible)."""
+        self.update_idletasks()
+        if self._sin_decoracion_ventana:
+            self._ventana_sin_decoracion_a_pantalla()
+        else:
+            maximizado = False
             try:
-                self.attributes("-zoomed", True)
-                maximizado = bool(self.attributes("-zoomed"))
+                self.state("zoomed")
+                maximizado = str(self.state()) == "zoomed"
             except tk.TclError:
                 pass
-        if not maximizado:
-            self._ocupar_pantalla_completa()
+            if not maximizado:
+                try:
+                    self.attributes("-zoomed", True)
+                    maximizado = bool(self.attributes("-zoomed"))
+                except tk.TclError:
+                    pass
+            if not maximizado:
+                self._ocupar_pantalla_completa()
         self._ventana_maximizada = True
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
