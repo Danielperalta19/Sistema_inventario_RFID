@@ -143,12 +143,7 @@ class TecladoVirtual:
         if campo is not None:
             w = campo.entrada
         self.enlazar(w)
-        try:
-            self._root.lift()
-        except tk.TclError:
-            pass
         self.mostrar()
-        self._enfocar_entrada()
 
     def _al_perder_foco(self, _event=None) -> None:
         if self._tarea_ocultar is not None:

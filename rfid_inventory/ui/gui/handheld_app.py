@@ -72,12 +72,6 @@ class AplicacionInventario(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
-        self._modo_kiosk = self._sin_barra_titulo_activo()
-        if self._modo_kiosk:
-            try:
-                self.overrideredirect(True)
-            except tk.TclError:
-                self._modo_kiosk = False
         self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
         self._ventana_maximizada = False
 
@@ -123,8 +117,6 @@ class AplicacionInventario(tk.Tk):
 
         self.contenedor = tk.Frame(self)
         self.contenedor.pack(fill="both", expand=True)
-        self.bind("<Button-1>", self._al_click_restaurar_foco, add="+")
-        self.contenedor.bind("<Button-1>", self._al_click_restaurar_foco, add="+")
         self._teclado_virtual = TecladoVirtual(self)
 
         self._marco_menu = None
@@ -433,96 +425,35 @@ class AplicacionInventario(tk.Tk):
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
-    @staticmethod
-    def _sin_barra_titulo_activo() -> bool:
-        """Sin botones minimizar/maximizar/cerrar (kiosk). Por defecto en Linux/Pi."""
-        raw = os.environ.get("RFID_SIN_BARRA_TITULO", "").strip().lower()
-        if raw in ("0", "false", "no", "off"):
-            return False
-        if raw in ("1", "true", "yes", "si", "sí", "on"):
-            return True
-        return os.name == "posix"
-
-    def _margen_superior_escritorio(self) -> int:
-        """Espacio del panel LXDE (lxpanel); evita que la zona superior no reciba toques."""
-        if not self._modo_kiosk:
-            return 0
-        raw = os.environ.get("RFID_WM_MARGIN_TOP", "").strip()
-        if raw:
-            try:
-                return max(0, int(raw))
-            except ValueError:
-                pass
-        try:
-            if str(self.state()) not in ("withdrawn", "iconic"):
-                ry = int(self.winfo_rooty())
-                if ry > 0:
-                    return ry
-        except tk.TclError:
-            pass
-        return 28 if os.name == "posix" else 0
-
     def _ocupar_pantalla_completa(self) -> None:
         sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
         sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
-        top = self._margen_superior_escritorio()
-        alto = max(200, sh - top)
-        self.geometry("{0}x{1}+0+{2}".format(sw, alto, top))
-
-    def _activar_foco_ventana(self) -> None:
-        """overrideredirect en X11 a veces no recibe teclado hasta forzar foco."""
-        try:
-            self.lift()
-            self.focus_force()
-        except tk.TclError:
-            pass
-        try:
-            self.attributes("-topmost", True)
-            self.after(100, lambda: self.attributes("-topmost", False))
-        except tk.TclError:
-            pass
-
-    def _al_click_restaurar_foco(self, event) -> None:
-        w = getattr(event, "widget", None)
-        if w is None:
-            return
-        try:
-            clase = w.winfo_class()
-            if clase in ("Entry", "Text", "TEntry", "TCombobox", "Button", "TButton"):
-                w.focus_set()
-        except tk.TclError:
-            pass
+        self.geometry("{0}x{1}+0+0".format(sw, sh))
 
     def _maximizar_ventana(self, _event=None) -> None:
-        """Ocupa toda la pantalla; en kiosk sin barra de título usa geometría completa."""
+        """Ventana maximizada; el escritorio (lxpanel) sigue visible."""
         self.update_idletasks()
-        if self._modo_kiosk:
-            self._ocupar_pantalla_completa()
-        else:
-            maximizado = False
+        maximizado = False
+        try:
+            self.state("zoomed")
+            maximizado = str(self.state()) == "zoomed"
+        except tk.TclError:
+            pass
+        if not maximizado:
             try:
-                self.state("zoomed")
-                maximizado = str(self.state()) == "zoomed"
+                self.attributes("-zoomed", True)
+                maximizado = bool(self.attributes("-zoomed"))
             except tk.TclError:
                 pass
-            if not maximizado:
-                try:
-                    self.attributes("-zoomed", True)
-                    maximizado = bool(self.attributes("-zoomed"))
-                except tk.TclError:
-                    pass
-            if not maximizado:
-                self._ocupar_pantalla_completa()
+        if not maximizado:
+            self._ocupar_pantalla_completa()
         self._ventana_maximizada = True
-        self._activar_foco_ventana()
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
 
     def _al_mapear_ventana(self, _event=None) -> None:
         if not self._ventana_maximizada:
             self._maximizar_ventana()
-        else:
-            self._activar_foco_ventana()
 
     def _inicializar_estilos(self):
         style = ttk.Style(self)
