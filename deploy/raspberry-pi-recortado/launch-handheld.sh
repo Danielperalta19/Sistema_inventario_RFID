@@ -5,8 +5,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DEFAULT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 export RFID_REPO_ROOT="${RFID_REPO_ROOT:-${REPO_DEFAULT}}"
-# Si el teclado queda cortado abajo, ajusta la altura del panel LXDE (píxeles):
-# export RFID_WM_MARGIN_TOP=28
 
 cd "${RFID_REPO_ROOT}"
 

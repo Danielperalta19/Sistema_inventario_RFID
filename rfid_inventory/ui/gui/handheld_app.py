@@ -72,9 +72,8 @@ class AplicacionInventario(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
-        if os.name == "posix":
-            self.resizable(False, False)
-        self._aplicar_geometria_ventana()
+        self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
+        self._ventana_maximizada = False
 
         self._escaneo_inicio_ms = None
         self._tarea_temporizador_escaneo = None
@@ -148,8 +147,8 @@ class AplicacionInventario(tk.Tk):
         self._teclado_virtual.instalar_en(self)
 
         self.bind("<Map>", self._al_mapear_ventana, add="+")
-        self.after_idle(self._aplicar_geometria_ventana)
-        self.after(200, self._aplicar_geometria_ventana)
+        self.after_idle(self._maximizar_ventana)
+        self.after(150, self._maximizar_ventana)
 
         # En la Pi el puerto serial queda libre para rfid-hid-gatt hasta que el usuario abre inventario.
         if os.name == "posix":
@@ -426,52 +425,32 @@ class AplicacionInventario(tk.Tk):
     def _clave_ubicacion_actual(self):
         return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
 
-    def _margen_superior_wm(self) -> int:
-        """Pixeles que ocupa la barra del escritorio (lxpanel, etc.) sobre el framebuffer."""
-        raw = os.environ.get("RFID_WM_MARGIN_TOP", "").strip()
-        if raw:
-            try:
-                return max(0, int(raw))
-            except ValueError:
-                pass
-        if os.name != "posix":
-            return 0
+    def _maximizar_ventana(self, _event=None) -> None:
+        """Ocupa toda la pantalla (como antes); el WM resuelve panel/barra superior."""
+        self.update_idletasks()
+        maximizado = False
         try:
-            if str(self.state()) not in ("withdrawn", "iconic"):
-                ry = int(self.winfo_rooty())
-                if ry > 0:
-                    return ry
+            self.state("zoomed")
+            maximizado = str(self.state()) == "zoomed"
         except tk.TclError:
             pass
-        return 28
-
-    def _margen_inferior_wm(self) -> int:
-        raw = os.environ.get("RFID_WM_MARGIN_BOTTOM", "0").strip()
-        try:
-            return max(0, int(raw))
-        except ValueError:
-            return 0
-
-    def _aplicar_geometria_ventana(self, _event=None) -> None:
-        """Ajusta la ventana al área visible (p. ej. 480×320 menos panel superior)."""
-        self.update_idletasks()
-        sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
-        sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
-        margen_arriba = self._margen_superior_wm()
-        margen_abajo = self._margen_inferior_wm()
-        ancho = min(self._ANCHO_PANTALLA, sw)
-        alto = min(self._ALTO_PANTALLA, sh - margen_arriba - margen_abajo)
-        alto = max(240, alto)
-        x = max(0, (sw - ancho) // 2)
-        y = margen_arriba
-        self.geometry("{0}x{1}+{2}+{3}".format(ancho, alto, x, y))
-        self.minsize(ancho, alto)
-        self.maxsize(ancho, alto)
+        if not maximizado:
+            try:
+                self.attributes("-zoomed", True)
+                maximizado = bool(self.attributes("-zoomed"))
+            except tk.TclError:
+                pass
+        if not maximizado:
+            sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
+            sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
+            self.geometry("{0}x{1}+0+0".format(sw, sh))
+        self._ventana_maximizada = True
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
 
     def _al_mapear_ventana(self, _event=None) -> None:
-        self._aplicar_geometria_ventana()
+        if not self._ventana_maximizada:
+            self._maximizar_ventana()
 
     def _inicializar_estilos(self):
         style = ttk.Style(self)

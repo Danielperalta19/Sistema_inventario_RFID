@@ -1,6 +1,6 @@
 Despliegue en Raspberry Pi
 
-Objetivo: al iniciar sesión se abre la app de inventario (ventana 480×320 o maximizada según el escritorio). Los campos de texto muestran un teclado integrado en la parte inferior de la app.
+Objetivo: al iniciar sesión se abre la app de inventario maximizada (pantalla 480×320 en la TFT). Los campos de texto muestran un teclado integrado en la parte inferior de la app.
 
 Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no deja pip global).
 
