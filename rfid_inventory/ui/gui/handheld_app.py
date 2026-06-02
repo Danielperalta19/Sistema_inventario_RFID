@@ -539,7 +539,7 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_inicio,
-            text="Inventario RFID",
+            text="Inventario RFID BORRAR",
             font=("", 12, "bold"),
         ).pack(pady=(20, 4))
 
