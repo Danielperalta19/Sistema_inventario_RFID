@@ -123,8 +123,6 @@ class AplicacionInventario(tk.Tk):
 
         self.contenedor = tk.Frame(self)
         self.contenedor.pack(fill="both", expand=True)
-        if self._sin_decoracion_ventana:
-            self.bind("<Button-1>", self._foco_al_widget_pulsado, add="+")
         self._teclado_virtual = TecladoVirtual(self)
 
         self._marco_menu = None
@@ -495,10 +493,6 @@ class AplicacionInventario(tk.Tk):
             return
         self._ventana_sin_decoracion_a_pantalla()
         self.lift()
-        try:
-            self.focus_force()
-        except tk.TclError:
-            pass
 
     def _caja_dialogo(self, funcion, titulo: str, mensaje: str, **opciones):
         opciones.setdefault("parent", self)
@@ -520,18 +514,6 @@ class AplicacionInventario(tk.Tk):
 
     def _msg_error(self, titulo: str, mensaje: str, **opciones):
         return self._caja_dialogo(messagebox.showerror, titulo, mensaje, **opciones)
-
-    def _foco_al_widget_pulsado(self, event) -> None:
-        w = getattr(event, "widget", None)
-        if w is None or w is self:
-            return
-        if TecladoVirtual._widget_es_campo_texto(w):
-            self._teclado_virtual.activar_para_widget(w)
-            return
-        try:
-            w.focus_set()
-        except tk.TclError:
-            pass
 
     def _maximizar_ventana(self, _event=None) -> None:
         """Maximizada con barra del WM, o sin decoración solo en Pi (lxpanel visible)."""
@@ -556,13 +538,6 @@ class AplicacionInventario(tk.Tk):
         self._ventana_maximizada = True
         if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
             self._teclado_virtual._reposicionar()
-        if self._sin_decoracion_ventana:
-            try:
-                self.lift()
-                self.focus_force()
-            except tk.TclError:
-                pass
-
     def _al_mapear_ventana(self, _event=None) -> None:
         if not self._ventana_maximizada:
             self._maximizar_ventana()
@@ -633,7 +608,7 @@ class AplicacionInventario(tk.Tk):
 
         tk.Label(
             self._marco_inicio,
-            text="Inventario RFID BORRAR",
+            text="Inventario RFID",
             font=("", 12, "bold"),
         ).pack(pady=(20, 4))
 

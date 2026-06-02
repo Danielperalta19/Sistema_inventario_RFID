@@ -21,9 +21,22 @@ class TecladoVirtual:
     _COLOR_TECLA_ACT = "#c7ccd4"
     _COLOR_TECLA_FN = "#b8bec8"
     _COLOR_BORDE = "#a8afb9"
+    _COLOR_TEXTO = "#111111"
+    _FUENTE_TECLA = ("DejaVu Sans", 10)
+
+    @classmethod
+    def _fuente_teclas(cls) -> tuple[str, int]:
+        try:
+            import tkinter.font as tkfont
+
+            tkfont.Font(family="DejaVu Sans", size=10)
+            return cls._FUENTE_TECLA
+        except tk.TclError:
+            return ("TkDefaultFont", 10)
 
     def __init__(self, root: tk.Misc) -> None:
         self._root = root.winfo_toplevel()
+        self._fuente = self._fuente_teclas()
         self._entrada: tk.Widget | None = None
         self._tarea_ocultar: str | None = None
         self._visible = False
@@ -52,7 +65,7 @@ class TecladoVirtual:
 
         fila_fn = tk.Frame(cuerpo, bg=self._COLOR_FONDO)
         fila_fn.pack(fill="x", pady=(2, 0))
-        self._boton_tecla(fila_fn, "⌫", ancho=4, comando=self._borrar, fondo=self._COLOR_TECLA_FN).pack(
+        self._boton_tecla(fila_fn, "<-", ancho=3, comando=self._borrar, fondo=self._COLOR_TECLA_FN).pack(
             side="left", padx=1, ipadx=2
         )
         self._boton_tecla(fila_fn, "/", ancho=2).pack(side="left", padx=1)
@@ -63,7 +76,7 @@ class TecladoVirtual:
         )
         self._boton_tecla(
             fila_fn,
-            "▼",
+            "OK",
             ancho=3,
             comando=lambda: self.ocultar(),
             fondo=self._COLOR_TECLA_FN,
@@ -86,16 +99,19 @@ class TecladoVirtual:
             parent,
             text=etiqueta,
             width=ancho,
-            height=1,
-            font=("", 9),
-            relief="flat",
-            bd=0,
+            font=self._fuente,
+            relief="raised",
+            bd=1,
             bg=fondo,
+            fg=self._COLOR_TEXTO,
             activebackground=self._COLOR_TECLA_ACT,
+            activeforeground=self._COLOR_TEXTO,
             highlightthickness=1,
             highlightbackground=self._COLOR_BORDE,
             takefocus=False,
             command=cmd,
+            padx=2,
+            pady=4,
         )
 
     def enlazar(self, entrada: tk.Widget) -> None:
@@ -105,26 +121,20 @@ class TecladoVirtual:
         for clase in ("Entry", "Text", "TEntry", "TCombobox"):
             ventana.bind_class(clase, "<FocusIn>", self._al_foco, add="+")
             ventana.bind_class(clase, "<FocusOut>", self._al_perder_foco, add="+")
-            ventana.bind_class(clase, "<Button-1>", self._al_tocar_campo, add="+")
 
     def activar_para_widget(self, widget) -> None:
-        """Muestra el teclado para un campo (p. ej. tras toque con overrideredirect)."""
+        """Muestra el teclado para un campo (sin robar foco a la ventana raíz)."""
         w = widget
         if not self._widget_es_campo_texto(w):
             return
         campo = getattr(w, "_campo_autocompletado", None)
         if campo is not None:
             w = campo.entrada
+        if self._entrada is w and self._visible:
+            return
         self.enlazar(w)
-        try:
-            self._root.focus_force()
-        except tk.TclError:
-            pass
         self._enfocar_entrada()
         self.mostrar()
-
-    def _al_tocar_campo(self, event) -> None:
-        self.activar_para_widget(getattr(event, "widget", None))
 
     @staticmethod
     def _widget_es_campo_texto(w) -> bool:
@@ -162,7 +172,9 @@ class TecladoVirtual:
         campo = getattr(w, "_campo_autocompletado", None)
         if campo is not None:
             w = campo.entrada
-        self.activar_para_widget(w)
+        self.enlazar(w)
+        self._enfocar_entrada()
+        self.mostrar()
 
     def _al_perder_foco(self, _event=None) -> None:
         if self._tarea_ocultar is not None:
@@ -170,7 +182,7 @@ class TecladoVirtual:
                 self._root.after_cancel(self._tarea_ocultar)
             except Exception:
                 pass
-        self._tarea_ocultar = self._root.after(250, self._ocultar_si_aplica)
+        self._tarea_ocultar = self._root.after(400, self._ocultar_si_aplica)
 
     @staticmethod
     def _focus_seguro(ventana: tk.Misc):
@@ -262,7 +274,10 @@ class TecladoVirtual:
             if self._tiene_seleccion():
                 self._entrada.delete(tk.SEL_FIRST, tk.SEL_LAST)
             self._entrada.insert(tk.INSERT, texto)
-            self._entrada.icursor(tk.INSERT)
+            try:
+                self._entrada.icursor(tk.INSERT)
+            except tk.TclError:
+                pass
         except tk.TclError:
             pass
 
