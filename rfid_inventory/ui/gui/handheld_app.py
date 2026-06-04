@@ -605,6 +605,7 @@ class AplicacionInventario(tk.Tk):
         self._epc_memoria_escritura_actual = ""
         self._epc_memoria_escritura_nuevo = ""
         self._escritura_codigo_al_escanear = ""
+        self._escritura_pc_etiqueta = None
         if hasattr(self, "var_escritura_etiqueta_leida"):
             self.var_escritura_etiqueta_leida.set("Etiqueta escaneada: —")
             self.var_escritura_codigo_entrada.set("")
@@ -1465,6 +1466,7 @@ class AplicacionInventario(tk.Tk):
         self._epc_memoria_escritura_actual = ""
         self._epc_memoria_escritura_nuevo = ""
         self._escritura_codigo_al_escanear = ""
+        self._escritura_pc_etiqueta = None
         # (la simulación/hardware la gestiona ServicioEscrituraEtiquetas)
 
     def _escritura_escanear_una_vez(self):
@@ -1475,6 +1477,7 @@ class AplicacionInventario(tk.Tk):
             return
 
         self._epc_memoria_escritura_actual = lectura.epc_en_hex
+        self._escritura_pc_etiqueta = lectura.pc
         codigo_leido = (lectura.codigo_decodificado or "").strip()
         self._escritura_codigo_al_escanear = codigo_leido
         valor = valor_etiqueta_para_operador(lectura.epc_en_hex, codigo_leido or None)
@@ -1509,8 +1512,12 @@ class AplicacionInventario(tk.Tk):
         if not self._epc_memoria_escritura_nuevo:
             self._escritura_calcular_nuevo_epc(silent=True)
         try:
+            self._escaner.detener()
             resultado_escritura = self._servicio_escritura.programar_epc(
-                self._lector, self._epc_memoria_escritura_actual, self._epc_memoria_escritura_nuevo
+                self._lector,
+                self._epc_memoria_escritura_actual,
+                self._epc_memoria_escritura_nuevo,
+                pc_etiqueta=self._escritura_pc_etiqueta,
             )
         except Exception as e:
             self._msg_error("Escritura", str(e))

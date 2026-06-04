@@ -10,13 +10,17 @@ if os.path.isdir(os.path.join(_raiz_vendor, "rfid_r200")):
 
 from rfid_r200 import R200
 
+# PC Gen2 para EPC de 96 bits (12 bytes) — palabra de control habitual en etiquetas UHF.
+_PC_EPC_96_BITS = 0x3400
+
 
 class LecturaEtiqueta:
-    """Una lectura de etiqueta: EPC en hexadecimal y RSSI entero."""
+    """Una lectura de etiqueta: EPC en hexadecimal, RSSI entero y PC (protocol control) si aplica."""
 
-    def __init__(self, epc_hex, rssi):
+    def __init__(self, epc_hex, rssi, pc=None):
         self.epc_hex = epc_hex
         self.rssi = rssi
+        self.pc = pc
 
 
 class LectorR200:
@@ -62,7 +66,9 @@ class LectorR200:
         tags, _ = self._modulo_rfid.read_tags()
         salida = []
         for t in tags:
-            salida.append(LecturaEtiqueta(epc_hex=bytes(t.epc).hex(), rssi=int(t.rssi)))
+            salida.append(
+                LecturaEtiqueta(epc_hex=bytes(t.epc).hex(), rssi=int(t.rssi), pc=int(t.pc))
+            )
         return salida
 
     def leer_primera_etiqueta_una_encuesta(self):
@@ -73,15 +79,18 @@ class LectorR200:
         if not tags:
             return None
         t = tags[0]
-        return LecturaEtiqueta(epc_hex=bytes(t.epc).hex(), rssi=int(t.rssi))
+        return LecturaEtiqueta(epc_hex=bytes(t.epc).hex(), rssi=int(t.rssi), pc=int(t.pc))
 
     def programar_epc12_en_etiqueta(
-        self, epc_actual_hex: str, epc_nuevo_hex: str, access_password: int = 0
+        self,
+        epc_actual_hex: str,
+        epc_nuevo_hex: str,
+        access_password: int = 0,
+        pc_etiqueta: int | None = None,
     ) -> None:
         """Escribe el EPC de 12 bytes (96 bits) en la etiqueta.
 
-        Pasos del protocolo: seleccionar por EPC actual, modo de selección 0x02 y escritura en
-        el banco EPC (membank 0x01), palabra inicial 2, datos de 12 bytes.
+        Intenta primero solo el cuerpo EPC (palabra 2); si falla, PC+EPC (desde palabra 1).
         """
         if self._modulo_rfid is None:
             raise RuntimeError("No conectado")
@@ -91,15 +100,39 @@ class LectorR200:
             raise ValueError("EPC actual inválido (se esperan 24 hex / 96-bit).")
         if not nuevo or len(nuevo) < 24:
             raise ValueError("EPC inválido (se esperan 24 hex / 12 bytes).")
-        # Selección del tag objetivo (puede lanzar ``RuntimeError`` con detalle)
-        self._modulo_rfid.set_select_epc96(actual[:24])
-        ok = self._modulo_rfid.set_select_mode(0x02)
-        if not ok:
-            raise RuntimeError("No se pudo configurar Select Mode (0x12).")
 
-        datos = bytes.fromhex(nuevo[:24])
-        ok = self._modulo_rfid.write_label(
-            access_password=int(access_password), membank=0x01, sa_word=2, data=datos
+        self._modulo_rfid.detener_poll_multiple()
+        time.sleep(0.06)
+
+        self._modulo_rfid.set_select_epc96(actual[:24])
+        if not self._modulo_rfid.set_select_mode(0x00):
+            raise RuntimeError("No se pudo configurar Select Mode (0x12).")
+        time.sleep(0.08)
+
+        datos_epc = bytes.fromhex(nuevo[:24])
+        pc = int(pc_etiqueta) if pc_etiqueta is not None else _PC_EPC_96_BITS
+
+        if self._escribir_en_banco_epc(access_password, sa_word=2, data=datos_epc):
+            return
+        bloque_pc_epc = pc.to_bytes(2, "big") + datos_epc
+        if self._escribir_en_banco_epc(access_password, sa_word=1, data=bloque_pc_epc):
+            return
+
+        raise RuntimeError(
+            "No se pudo grabar la etiqueta. Deja solo UNA etiqueta cerca, vuelve a Escanear y escribe de nuevo."
         )
-        if not ok:
-            raise RuntimeError("Falló escritura de EPC (CMD_WRITE_LABEL).")
+
+    def _escribir_en_banco_epc(self, access_password: int, sa_word: int, data: bytes) -> bool:
+        try:
+            return bool(
+                self._modulo_rfid.write_label(
+                    access_password=int(access_password),
+                    membank=0x01,
+                    sa_word=int(sa_word),
+                    data=data,
+                )
+            )
+        except RuntimeError:
+            raise
+        except Exception:
+            return False

@@ -13,7 +13,9 @@ from .constants import CMD_SET_SELECT_PARAMETER
 from .constants import CMD_SET_SEND_SELECT_INSTRUCTION
 from .constants import CMD_WRITE_LABEL
 from .constants import CMD_SET_RECEIVER_DEMODULATOR_PARAMETERS
+from .constants import CMD_STOP_MULTIPLE_POLL
 from .constants import CMD_SET_TRANSMIT_POWER
+from .utils import R200ErrorResponse
 from .utils import R200Interface
 from .utils import R200PoolResponse
 from .utils import R200Response
@@ -170,11 +172,20 @@ class R200(R200Interface):
         self.send_command(CMD_SET_SEND_SELECT_INSTRUCTION, [m])
         responses = self.receive()
         for resp in responses:
-            if resp.command == CMD_SET_SEND_SELECT_INSTRUCTION and resp.checksum_ok:
-                return resp.params == [0x00]
+            if resp.command == CMD_SET_SEND_SELECT_INSTRUCTION:
+                if resp.params == [0x00]:
+                    return True
             if resp.command == 0xFF:
                 return False
         return False
+
+    def detener_poll_multiple(self) -> None:
+        """Detiene inventario continuo antes de Select/Write."""
+        try:
+            self.send_command(CMD_STOP_MULTIPLE_POLL, [])
+            self.receive()
+        except Exception:
+            pass
 
     def write_label(self, access_password: int, membank: int, sa_word: int, data: bytes) -> bool:
         """Write data to tag memory bank (CMD 0x49) as per protocol V2.3.3.
@@ -198,11 +209,12 @@ class R200(R200Interface):
         self.send_command(CMD_WRITE_LABEL, params)
         responses = self.receive()
         for resp in responses:
-            if resp.command == CMD_WRITE_LABEL and resp.checksum_ok:
-                # Success: last byte Parameter should be 0x00
-                return bool(resp.params) and resp.params[-1] == 0x00
+            if resp.command == CMD_WRITE_LABEL:
+                if resp.params and resp.params[-1] == 0x00:
+                    return True
             if resp.command == 0xFF:
-                return False
+                err = R200ErrorResponse(resp.params or [])
+                raise RuntimeError(err.parse())
         return False
 
     def hw_info(self) -> List[R200PoolResponse]:

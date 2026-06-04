@@ -12,6 +12,7 @@ class ResultadoLecturaEtiqueta:
     epc_en_hex: str
     codigo_decodificado: str | None
     simulado: bool
+    pc: int | None = None
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,12 @@ class ServicioEscrituraEtiquetas:
         if not t:
             raise RuntimeError("No se detectó ninguna etiqueta.")
         epc = (t.epc_hex or "").strip().lower()
+        pc = getattr(t, "pc", None)
         return ResultadoLecturaEtiqueta(
-            epc_en_hex=epc, codigo_decodificado=epc12_hex_a_codigo_activo(epc), simulado=False
+            epc_en_hex=epc,
+            codigo_decodificado=epc12_hex_a_codigo_activo(epc),
+            simulado=False,
+            pc=int(pc) if pc is not None else None,
         )
 
     def calcular_epc_desde_codigo(self, codigo_activo: str) -> str | None:
@@ -61,7 +66,13 @@ class ServicioEscrituraEtiquetas:
             return None
         return codigo_activo_a_epc12_hex(codigo)
 
-    def programar_epc(self, lector, epc_actual_hex: str, epc_nuevo_hex: str) -> ResultadoEscrituraEtiqueta:
+    def programar_epc(
+        self,
+        lector,
+        epc_actual_hex: str,
+        epc_nuevo_hex: str,
+        pc_etiqueta: int | None = None,
+    ) -> ResultadoEscrituraEtiqueta:
         """Programa el EPC en la etiqueta o simula el resultado según ``usar_hardware``."""
         actual = (epc_actual_hex or "").strip().lower()
         nuevo = (epc_nuevo_hex or "").strip().lower()
@@ -75,5 +86,7 @@ class ServicioEscrituraEtiquetas:
 
         if not getattr(lector, "connected", False):
             raise RuntimeError("No hay lector conectado.")
-        lector.programar_epc12_en_etiqueta(epc_actual_hex=actual, epc_nuevo_hex=nuevo)
+        lector.programar_epc12_en_etiqueta(
+            epc_actual_hex=actual, epc_nuevo_hex=nuevo, pc_etiqueta=pc_etiqueta
+        )
         return ResultadoEscrituraEtiqueta(epc_nuevo_en_hex=nuevo, simulado=False)

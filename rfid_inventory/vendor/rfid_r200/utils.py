@@ -8,9 +8,11 @@ from typing import Tuple
 
 from .constants import CMD_EXECUTION_FAILURE
 from .constants import CMD_SINGLE_POLL_INSTRUCTION
+from .constants import ERR_ACCESS_FAIL
 from .constants import ERR_COMMAND_ERROR
 from .constants import ERR_INVENTORY_FAIL
 from .constants import ERR_READ_FAIL
+from .constants import ERR_WRITE_FAIL
 from .constants import FRAME_TYPE_COMMAND
 from .constants import FRAME_TYPE_NOTIFICATION
 from .constants import FRAME_TYPE_RESPONSE
@@ -67,6 +69,10 @@ class R200ErrorResponse:
             self.message = "Can't execute command"
         elif self.error[0] == ERR_READ_FAIL:
             self.message = "Read failed"
+        elif self.error[0] == ERR_WRITE_FAIL:
+            self.message = "Write failed (etiqueta bloqueada o sin permiso)"
+        elif self.error[0] == ERR_ACCESS_FAIL:
+            self.message = "Access failed (contraseña o permisos)"
         else:
             self.message = f"Error: 0x{self.error[0]:02x}"
         return self.message
