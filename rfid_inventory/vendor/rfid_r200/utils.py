@@ -70,7 +70,7 @@ class R200ErrorResponse:
         elif self.error[0] == ERR_READ_FAIL:
             self.message = "Read failed"
         elif self.error[0] == ERR_WRITE_FAIL:
-            self.message = "Write failed (etiqueta bloqueada o sin permiso)"
+            self.message = "escritura rechazada (EPC bloqueado o etiqueta no programable)"
         elif self.error[0] == ERR_ACCESS_FAIL:
             self.message = "Access failed (contraseña o permisos)"
         else:

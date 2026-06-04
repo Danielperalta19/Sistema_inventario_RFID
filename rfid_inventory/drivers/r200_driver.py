@@ -53,6 +53,16 @@ class LectorR200:
             self._modulo_rfid.set_demodulator_params(mixer_g=2, if_g=7, thrd=100)
         except Exception:
             pass
+        self._restaurar_inventario_abierto()
+
+    def _restaurar_inventario_abierto(self) -> None:
+        """Inventario sin filtro Select (todas las etiquetas visibles)."""
+        if self._modulo_rfid is None:
+            return
+        try:
+            self._modulo_rfid.limpiar_filtro_select()
+        except Exception:
+            pass
 
     def cerrar(self):
         if self._modulo_rfid is None:
@@ -63,6 +73,7 @@ class LectorR200:
     def leer_etiquetas_una_ronda(self):
         if self._modulo_rfid is None:
             raise RuntimeError("No conectado")
+        self._restaurar_inventario_abierto()
         tags, _ = self._modulo_rfid.read_tags()
         salida = []
         for t in tags:
@@ -75,6 +86,7 @@ class LectorR200:
         """Lee etiquetas con una sola encuesta (single poll) y devuelve la primera o ``None``."""
         if self._modulo_rfid is None:
             raise RuntimeError("No conectado")
+        self._restaurar_inventario_abierto()
         tags, _ = self._modulo_rfid.read_tags_single()
         if not tags:
             return None
@@ -101,38 +113,63 @@ class LectorR200:
         if not nuevo or len(nuevo) < 24:
             raise ValueError("EPC inválido (se esperan 24 hex / 12 bytes).")
 
-        self._modulo_rfid.detener_poll_multiple()
-        time.sleep(0.06)
-
-        self._modulo_rfid.set_select_epc96(actual[:24])
-        if not self._modulo_rfid.set_select_mode(0x00):
-            raise RuntimeError("No se pudo configurar Select Mode (0x12).")
-        time.sleep(0.08)
-
         datos_epc = bytes.fromhex(nuevo[:24])
         pc = int(pc_etiqueta) if pc_etiqueta is not None else _PC_EPC_96_BITS
+        ultimo_error = ""
 
-        if self._escribir_en_banco_epc(access_password, sa_word=2, data=datos_epc):
-            return
-        bloque_pc_epc = pc.to_bytes(2, "big") + datos_epc
-        if self._escribir_en_banco_epc(access_password, sa_word=1, data=bloque_pc_epc):
-            return
-
-        raise RuntimeError(
-            "No se pudo grabar la etiqueta. Deja solo UNA etiqueta cerca, vuelve a Escanear y escribe de nuevo."
+        intentos = (
+            ("EPC (12 bytes)", 2, datos_epc),
+            ("PC+EPC", 1, pc.to_bytes(2, "big") + datos_epc),
         )
-
-    def _escribir_en_banco_epc(self, access_password: int, sa_word: int, data: bytes) -> bool:
-        try:
-            return bool(
-                self._modulo_rfid.write_label(
-                    access_password=int(access_password),
-                    membank=0x01,
-                    sa_word=int(sa_word),
-                    data=data,
-                )
+        if pc != _PC_EPC_96_BITS:
+            intentos = intentos + (
+                ("PC+EPC (PC alterno)", 1, _PC_EPC_96_BITS.to_bytes(2, "big") + datos_epc),
             )
-        except RuntimeError:
-            raise
-        except Exception:
-            return False
+
+        try:
+            for nombre, sa_word, bloque in intentos:
+                if self._intento_escritura_epc(actual[:24], access_password, sa_word, bloque, nombre):
+                    return
+                ultimo_error = getattr(self, "_ultimo_error_escritura", ultimo_error)
+
+            detalle = (ultimo_error or "sin detalle del módulo").strip()
+            raise RuntimeError(
+                "La etiqueta rechazó la escritura ({0}). "
+                "Muchas etiquetas UHF de fábrica vienen con el EPC bloqueado: prueba etiquetas "
+                "«programables» o «encodable». Si la tuya sí es escribible: una sola etiqueta cerca, "
+                "vuelve a Escanear y Escribir.".format(detalle)
+            )
+        finally:
+            self._restaurar_inventario_abierto()
+
+    def _preparar_select_escritura(self, epc_actual_24: str) -> None:
+        self._modulo_rfid.detener_poll_multiple()
+        time.sleep(0.06)
+        self._modulo_rfid.set_select_epc96(epc_actual_24)
+        if not self._modulo_rfid.set_select_mode(0x00):
+            raise RuntimeError("No se pudo configurar Select Mode (0x12).")
+        time.sleep(0.1)
+
+    def _intento_escritura_epc(
+        self,
+        epc_actual_24: str,
+        access_password: int,
+        sa_word: int,
+        data: bytes,
+        nombre: str,
+    ) -> bool:
+        self._preparar_select_escritura(epc_actual_24)
+        try:
+            if self._modulo_rfid.write_label(
+                access_password=int(access_password),
+                membank=0x01,
+                sa_word=int(sa_word),
+                data=data,
+            ):
+                return True
+            self._ultimo_error_escritura = "el módulo no confirmó {0}".format(nombre)
+        except RuntimeError as e:
+            self._ultimo_error_escritura = str(e)
+        except Exception as e:
+            self._ultimo_error_escritura = str(e)
+        return False

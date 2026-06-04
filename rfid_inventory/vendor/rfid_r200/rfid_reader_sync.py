@@ -187,6 +187,29 @@ class R200(R200Interface):
         except Exception:
             pass
 
+    def limpiar_filtro_select(self) -> None:
+        """Quita el filtro por EPC tras escritura; el inventario vuelve a ver todas las etiquetas.
+
+        Tras ``set_select_mode(0x00)`` (escritura), el lector solo respondía a la etiqueta
+        seleccionada. Restauramos modo 0x02 y máscara de 0 bits.
+        """
+        try:
+            self.detener_poll_multiple()
+        except Exception:
+            pass
+        try:
+            # Select sin máscara (0 bits) = sin filtro activo
+            params = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            self.send_command(CMD_SET_SELECT_PARAMETER, params)
+            self.receive()
+        except Exception:
+            pass
+        try:
+            # 0x02: Select solo en operaciones distintas al inventario (poll múltiple/simple)
+            self.set_select_mode(0x02)
+        except Exception:
+            pass
+
     def write_label(self, access_password: int, membank: int, sa_word: int, data: bytes) -> bool:
         """Write data to tag memory bank (CMD 0x49) as per protocol V2.3.3.
 
