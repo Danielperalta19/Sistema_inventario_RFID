@@ -94,8 +94,9 @@ Ejemplo y significado de claves:
 - **`serial.default_port_windows`**: texto inicial del puerto en Windows (p. ej. `COM5`).
 - **`serial.default_port_pi_fallback`**: si no hay `/dev/serial/by-id/`, se usa este valor como respaldo en Linux.
 - **`catalog.prefer_web_dir`**: si es `true`, se intenta primero el catálogo en `pi_ble_hid/web/`; si es `false`, primero `data/catalog_ejemplo/`.
-- **`features.write_use_hardware`**: si es `true`, el módulo “Escribir tag” usa el lector real (`single poll` / `write_epc12_hex`). Si es `false`, es **simulado** salvo override por entorno (ver mapa).
-- **`features.prox_force_sim`**: si es `true`, el rastreo usa **solo simulación** de RSSI (comportamiento demo acordado).
+- **`features.write_use_hardware`**: por defecto `true` (escritura real). Con `false` o `RFID_WRITE_USE_HARDWARE=0` vuelve la simulación (útil con emulador Arduino sin módulo).
+- **`features.prox_force_sim`**: por defecto `false` (RSSI real con lector conectado). Con `true` el rastreo usa RSSI simulado aunque haya hardware.
+- **`serial.default_port_pi_fallback`**: por defecto `/dev/serial0` (UART GPIO en Pi).
 
 Override rápido sin tocar JSON (escritura):
 

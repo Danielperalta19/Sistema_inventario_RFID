@@ -66,9 +66,9 @@ class ServicioEscrituraEtiquetas:
         actual = (epc_actual_hex or "").strip().lower()
         nuevo = (epc_nuevo_hex or "").strip().lower()
         if not actual:
-            raise RuntimeError("Primero escanea una etiqueta (EPC actual).")
+            raise RuntimeError("Primero escanea una etiqueta.")
         if not nuevo:
-            raise RuntimeError("Escribe el código del activo para generar el EPC nuevo.")
+            raise RuntimeError("Escribe el código del activo a grabar.")
 
         if not self._usar_hardware:
             return ResultadoEscrituraEtiqueta(epc_nuevo_en_hex=nuevo, simulado=True)

@@ -2,14 +2,13 @@
   "serial": {
     "baud": 115200,
     "default_port_windows": "COM5",
-    "default_port_pi_fallback": "/dev/serial0"
+    "default_port_pi_fallback": "/dev/ttyUSB0"
   },
   "catalog": {
     "prefer_web_dir": true
   },
   "features": {
-    "write_use_hardware": true,
-    "prox_force_sim": false
+    "write_use_hardware": false,
+    "prox_force_sim": true
   }
 }
-

@@ -22,6 +22,15 @@ def codigo_activo_o_guion_desde_epc(epc_hex: str) -> str:
     return epc12_hex_a_codigo_activo(epc) or "—"
 
 
+def valor_etiqueta_para_operador(epc_hex: str, codigo_decodificado: str | None = None) -> str:
+    """Código de activo si existe; si no, el identificador leído en la etiqueta (sin decir EPC)."""
+    codigo = (codigo_decodificado or "").strip()
+    if codigo:
+        return codigo
+    epc = (epc_hex or "").strip().lower()
+    return epc if epc else "—"
+
+
 def hex_corto(epc_hex: str, keep: int = 8) -> str:
     epc = (epc_hex or "").strip().lower()
     if not epc:
@@ -33,4 +42,15 @@ def hex_corto(epc_hex: str, keep: int = 8) -> str:
 
 def estado_escritura_programada(old_epc: str, new_epc: str) -> str:
     return f"OK: EPC programado ({hex_corto(old_epc)} → {hex_corto(new_epc)})."
+
+
+def estado_escritura_programada_operador(codigo_anterior: str | None, codigo_nuevo: str | None) -> str:
+    """Mensaje para pantalla Escribir etiqueta (sin EPC ni hex)."""
+    anterior = (codigo_anterior or "").strip() or "—"
+    nuevo = (codigo_nuevo or "").strip() or "—"
+    if anterior != "—" and nuevo != "—" and anterior != nuevo:
+        return "Etiqueta actualizada: {0} → {1}.".format(anterior, nuevo)
+    if nuevo != "—":
+        return "Etiqueta grabada con código {0}.".format(nuevo)
+    return "Etiqueta grabada correctamente."
 

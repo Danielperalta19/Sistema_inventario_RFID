@@ -18,7 +18,11 @@ import time
 from rfid_inventory.app import Escaner
 from rfid_inventory.app.inventory_presenter import construir_filas_resultado
 from rfid_inventory.app.inventory_service import ServicioInventario
-from rfid_inventory.app.proximity_tracker import RastreadorProximidad, banda_distancia_aproximada
+from rfid_inventory.app.proximity_tracker import (
+    RastreadorProximidad,
+    barras_senal_desde_rssi,
+    texto_proximidad_operador,
+)
 from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
 from rfid_inventory.app.tracking_service import ServicioRastreo
 from rfid_inventory.app.app_config import cargar_configuracion_aplicacion, hardware_escritura_resuelto
@@ -29,12 +33,14 @@ from rfid_inventory.catalog.catalog_loader import (
 )
 from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo
 from rfid_inventory.drivers import LectorR200
+from rfid_inventory.ui.gui.barras_senal import BarrasSenal
 from rfid_inventory.ui.gui.campo_autocompletado import CampoAutocompletado
 from rfid_inventory.ui.gui.teclado_virtual import TecladoVirtual
 from rfid_inventory.ui.ui_formatters import (
     codigo_activo_o_guion_desde_epc,
-    estado_escritura_programada,
+    estado_escritura_programada_operador,
     mostrar_activo_desde_epc,
+    valor_etiqueta_para_operador,
 )
 
 
@@ -147,6 +153,7 @@ class AplicacionInventario(tk.Tk):
         self._construir_escritura()
         self._construir_hid()
 
+        self._marco_actual = "inicio"
         self._mostrar_marco("inicio")
 
         self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
@@ -571,13 +578,43 @@ class AplicacionInventario(tk.Tk):
         ).grid(row=fila, column=0, sticky="w", padx=(6, 4), pady=2)
         tk.Label(marco, text=titulo, font=("", 9, "bold")).grid(row=fila, column=1, sticky="w", pady=2)
 
-    def _set_linea_proximidad(self, principal: str, detalle: str = "") -> None:
-        if detalle:
-            self.var_proximidad_linea.set(self._texto_corto("{0}  ·  {1}".format(principal, detalle), 72))
-        else:
-            self.var_proximidad_linea.set(self._texto_corto(principal, 72))
+    def _actualizar_indicador_proximidad(self, rssi: int | float | None, *, sin_senal: bool = False) -> None:
+        if sin_senal:
+            self._barras_proximidad.establecer(0)
+            self.var_proximidad_distancia.set("Sin señal — acerca la pistola al activo")
+            return
+        barras = barras_senal_desde_rssi(rssi)
+        self._barras_proximidad.establecer(barras)
+        self.var_proximidad_distancia.set(
+            self._texto_corto(texto_proximidad_operador(rssi), 64)
+        )
+
+    def _reiniciar_pantalla_rastreo(self) -> None:
+        self._proximidad_detener()
+        self._rastreador_proximidad.reiniciar("")
+        if hasattr(self, "var_rastreo_busqueda"):
+            self.var_rastreo_busqueda.set("")
+            self.var_rastreo_linea.set("Activo: —")
+            self.var_rastreo_ubicacion.set("Ubicación esperada: —")
+            self._barras_proximidad.establecer(0)
+            self.var_proximidad_distancia.set("Busca el activo y pulsa Iniciar para acercarte")
+
+    def _reiniciar_pantalla_escritura(self) -> None:
+        self._epc_memoria_escritura_actual = ""
+        self._epc_memoria_escritura_nuevo = ""
+        self._escritura_codigo_al_escanear = ""
+        if hasattr(self, "var_escritura_etiqueta_leida"):
+            self.var_escritura_etiqueta_leida.set("Etiqueta escaneada: —")
+            self.var_escritura_codigo_entrada.set("")
+            self.var_escritura_estado.set("Escanea una etiqueta o escribe el código.")
 
     def _mostrar_marco(self, nombre_marco):
+        anterior = getattr(self, "_marco_actual", None)
+        if anterior == "rastreo" and nombre_marco != "rastreo":
+            self._reiniciar_pantalla_rastreo()
+        elif anterior == "escritura" and nombre_marco != "escritura":
+            self._reiniciar_pantalla_escritura()
+
         self._teclado_virtual.ocultar(rapido=True)
         for w in self.contenedor.winfo_children():
             w.pack_forget()
@@ -597,11 +634,15 @@ class AplicacionInventario(tk.Tk):
         elif nombre_marco == "detalle":
             self._marco_detalle.pack(fill="both", expand=True)
         elif nombre_marco == "rastreo":
+            self._reiniciar_pantalla_rastreo()
             self._marco_rastreo.pack(fill="both", expand=True)
         elif nombre_marco == "escritura":
+            self._reiniciar_pantalla_escritura()
             self._marco_escritura.pack(fill="both", expand=True)
         elif nombre_marco == "modo_hid":
             self._marco_hid.pack(fill="both", expand=True)
+
+        self._marco_actual = nombre_marco
 
     def _construir_inicio(self):
         self._marco_inicio = tk.Frame(self.contenedor)
@@ -664,7 +705,7 @@ class AplicacionInventario(tk.Tk):
         boton_grande(
             self._marco_menu,
             "Escribir etiqueta",
-            lambda: self._mostrar_marco("escritura"),
+            self._entrar_escritura,
         )
         boton_grande(
             self._marco_menu,
@@ -1130,32 +1171,42 @@ class AplicacionInventario(tk.Tk):
 
         busq = tk.Frame(m)
         busq.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0)
-        busq.columnconfigure(0, weight=1)
+        busq.columnconfigure(1, weight=1)
+        tk.Label(busq, text="Código:", font=("", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4))
         self.var_rastreo_busqueda = tk.StringVar(value="")
-        tk.Entry(busq, textvariable=self.var_rastreo_busqueda, font=("", 9)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(busq, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).grid(row=0, column=1, padx=(0, 2))
+        tk.Entry(busq, textvariable=self.var_rastreo_busqueda, font=("", 9)).grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        ttk.Button(busq, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).grid(row=0, column=2, padx=(0, 2))
         ttk.Button(busq, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).grid(
-            row=0, column=2
+            row=0, column=3
         )
 
-        self.var_rastreo_linea = tk.StringVar(value="Activo / EPC: —")
+        self.var_rastreo_linea = tk.StringVar(value="Activo: —")
         tk.Label(m, textvariable=self.var_rastreo_linea, font=("", 8), anchor="w", wraplength=468).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=0
         )
-        self.var_rastreo_ubicacion = tk.StringVar(value="Ubic.: —")
+        self.var_rastreo_ubicacion = tk.StringVar(value="Ubicación esperada: —")
         tk.Label(m, textvariable=self.var_rastreo_ubicacion, font=("", 8), anchor="w", wraplength=468).grid(
             row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
         )
 
-        self.var_proximidad_linea = tk.StringVar(value="Proximidad: —")
-        tk.Label(m, textvariable=self.var_proximidad_linea, font=("", 8), anchor="w", wraplength=468).grid(
-            row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 0)
-        )
-        self.barra_proximidad = ttk.Progressbar(m, orient="horizontal", mode="determinate", maximum=100)
-        self.barra_proximidad.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 2))
+        prox = tk.Frame(m)
+        prox.grid(row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 2))
+        prox.columnconfigure(1, weight=1)
+        tk.Label(prox, text="Cercanía", font=("", 9, "bold")).grid(row=0, column=0, sticky="nw", padx=(0, 6))
+        self._barras_proximidad = BarrasSenal(prox, numero=4)
+        self._barras_proximidad.grid(row=0, column=1, sticky="w", pady=(0, 2))
+        self.var_proximidad_distancia = tk.StringVar(value="Busca el activo y pulsa Iniciar para acercarte")
+        tk.Label(
+            prox,
+            textvariable=self.var_proximidad_distancia,
+            font=("", 9),
+            anchor="w",
+            wraplength=400,
+            justify="left",
+        ).grid(row=1, column=0, columnspan=2, sticky="ew")
 
         pie = tk.Frame(m)
-        pie.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
+        pie.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
         pie.columnconfigure(0, weight=1)
         pie.columnconfigure(1, weight=1)
         self.btn_proximidad_iniciar = ttk.Button(
@@ -1174,8 +1225,30 @@ class AplicacionInventario(tk.Tk):
         self._escaner.detener()
         self._detener_temporizador_escaneo()
         self._ajustar_controles_escaneo_activo(False)
+        if not self._lector.connected:
+            self._msg_warning(
+                "Rastreo",
+                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
+            )
+            self._abrir_pantalla_conexion_inventario()
+            return
         self._mostrar_marco("rastreo")
+
+    def _entrar_escritura(self):
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
         self._proximidad_detener()
+        if not self._lector.connected:
+            self._msg_warning(
+                "Escribir etiqueta",
+                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
+            )
+            self._abrir_pantalla_conexion_inventario()
+            return
+        self._mostrar_marco("escritura")
 
     def _rastreo_normalizar_entrada(self, texto: str) -> tuple[str, str]:
         return self._servicio_rastreo.normalizar_entrada(texto)
@@ -1183,13 +1256,13 @@ class AplicacionInventario(tk.Tk):
     def _rastreo_buscar(self):
         resultado_rastreo = self._servicio_rastreo.rastrear(self.var_rastreo_busqueda.get())
         if not resultado_rastreo:
-            self._msg_info("Rastreo", "Escribe un EPC (hex) o un código de activo.")
+            self._msg_info("Rastreo", "Escribe el código del activo a buscar.")
             return
-        codigo = resultado_rastreo.codigo_activo or "?"
-        epc = resultado_rastreo.epc_en_hex or "—"
-        self.var_rastreo_linea.set(
-            self._texto_corto("Act. {0} · EPC {1}".format(codigo, epc), 64)
-        )
+        codigo = (resultado_rastreo.codigo_activo or "").strip()
+        if codigo:
+            self.var_rastreo_linea.set(self._texto_corto("Activo: {0}".format(codigo), 64))
+        else:
+            self.var_rastreo_linea.set("Activo no encontrado en el catálogo")
         if not resultado_rastreo.ubicaciones:
             ubic_txt = "(sin ubicación en catálogo)"
         elif len(resultado_rastreo.ubicaciones) == 1:
@@ -1198,10 +1271,10 @@ class AplicacionInventario(tk.Tk):
             ubic_txt = " | ".join(resultado_rastreo.ubicaciones[:2])
             if len(resultado_rastreo.ubicaciones) > 2:
                 ubic_txt += " …"
-        self.var_rastreo_ubicacion.set(self._texto_corto("Ubic.: " + ubic_txt, 64))
+        self.var_rastreo_ubicacion.set(self._texto_corto("Ubicación esperada: " + ubic_txt, 64))
         self._rastreador_proximidad.reiniciar(resultado_rastreo.epc_en_hex)
-        self.barra_proximidad["value"] = 0
-        self._set_linea_proximidad("Listo para rastrear", "RSSI —")
+        self._barras_proximidad.establecer(0)
+        self.var_proximidad_distancia.set("Pulsa Iniciar y acércate al activo")
 
     def _proximidad_ajustar_controles(self, activa: bool):
         self._proximidad_activa = bool(activa)
@@ -1224,11 +1297,16 @@ class AplicacionInventario(tk.Tk):
         objetivo = st.epc_objetivo
         seen = {"any": False}
 
-        # Modo simulación (demostrativo): RSSI inventado que varía.
-        if self._forzar_sim_proximidad or (not self._lector.connected):
-            self._set_linea_proximidad("Simulación (demo)", "RSSI —")
+        if self._forzar_sim_proximidad:
+            self.var_proximidad_distancia.set("Modo demostración (prox_force_sim activo)")
             self._proximidad_iniciar_simulacion()
             self._proximidad_iniciar_actualizacion_ui()
+            return
+        if not self._lector.connected:
+            self._msg_warning(
+                "Rastreo",
+                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
+            )
             return
 
         def al_tag(tag, _idx):
@@ -1269,27 +1347,21 @@ class AplicacionInventario(tk.Tk):
             pass
 
     def _proximidad_iniciar_actualizacion_ui(self):
-        # Actualiza barra/labels cada 200ms y marca "sin señal" si no se ve recientemente
         def actualizar_proximidad_ui():
             if not self._proximidad_activa:
                 return
             estado_prox = self._rastreador_proximidad.estado
             instante_ms = int(self.tk.call("clock", "milliseconds"))
-            nivel = self._rastreador_proximidad.nivel_porcentaje()
-            self.barra_proximidad["value"] = nivel
             if estado_prox and estado_prox.rssi_suavizado is not None:
-                rssi_txt = f"{estado_prox.rssi_suavizado:.0f}"
-                banda = banda_distancia_aproximada(estado_prox.rssi_suavizado)
-                self._set_linea_proximidad(
-                    "{0} ({1}, {2}%)".format(
-                        banda, self._rastreador_proximidad.texto_nivel_relativo(), nivel
-                    ),
-                    "RSSI {0} dBm".format(rssi_txt),
+                perdido = (
+                    estado_prox.ultima_lectura_ms is not None
+                    and instante_ms - estado_prox.ultima_lectura_ms > 1200
                 )
-                if estado_prox.ultima_lectura_ms is not None and instante_ms - estado_prox.ultima_lectura_ms > 1200:
-                    self._set_linea_proximidad("Sin señal", "no se ve el tag")
+                self._actualizar_indicador_proximidad(
+                    estado_prox.rssi_suavizado, sin_senal=perdido
+                )
             else:
-                self._set_linea_proximidad("Sin señal", "RSSI —")
+                self._actualizar_indicador_proximidad(None, sin_senal=True)
             self._tarea_ui_proximidad = self.after(200, actualizar_proximidad_ui)
 
         self._tarea_ui_proximidad = self.after(100, actualizar_proximidad_ui)
@@ -1318,30 +1390,26 @@ class AplicacionInventario(tk.Tk):
 
         self._grid_cabecera_pantalla(m, "Escribir etiqueta", fila=0)
 
-        self.var_escritura_epc_actual = tk.StringVar(value="EPC act.: —")
-        tk.Label(m, textvariable=self.var_escritura_epc_actual, font=("", 8), anchor="w", wraplength=468).grid(
+        self.var_escritura_etiqueta_leida = tk.StringVar(value="Etiqueta escaneada: —")
+        tk.Label(m, textvariable=self.var_escritura_etiqueta_leida, font=("", 8), anchor="w", wraplength=468).grid(
             row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0
         )
 
         cod = tk.Frame(m)
         cod.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=2)
         cod.columnconfigure(1, weight=1)
-        tk.Label(cod, text="Código:", font=("", 8)).grid(row=0, column=0, sticky="w", padx=(0, 4))
+        tk.Label(cod, text="Código del activo:", font=("", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4))
         self.var_escritura_codigo_entrada = tk.StringVar(value="")
         tk.Entry(cod, textvariable=self.var_escritura_codigo_entrada, font=("", 9)).grid(row=0, column=1, sticky="ew")
         self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
 
-        self.var_escritura_epc_nuevo = tk.StringVar(value="EPC nuevo: —")
-        tk.Label(m, textvariable=self.var_escritura_epc_nuevo, font=("", 8), anchor="w", wraplength=468).grid(
-            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
-        )
-        self.var_escritura_estado = tk.StringVar(value="")
+        self.var_escritura_estado = tk.StringVar(value="Escanea una etiqueta o escribe el código.")
         tk.Label(m, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", anchor="w", wraplength=468).grid(
-            row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
         )
 
         pie = tk.Frame(m)
-        pie.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 4))
+        pie.grid(row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 4))
         pie.columnconfigure(0, weight=1)
         pie.columnconfigure(1, weight=1)
         ttk.Button(pie, text="Escanear", style="HandheldBig.TButton", command=self._escritura_escanear_una_vez).grid(
@@ -1354,6 +1422,7 @@ class AplicacionInventario(tk.Tk):
         # Estado interno
         self._epc_memoria_escritura_actual = ""
         self._epc_memoria_escritura_nuevo = ""
+        self._escritura_codigo_al_escanear = ""
         # (la simulación/hardware la gestiona ServicioEscrituraEtiquetas)
 
     def _escritura_escanear_una_vez(self):
@@ -1364,30 +1433,35 @@ class AplicacionInventario(tk.Tk):
             return
 
         self._epc_memoria_escritura_actual = lectura.epc_en_hex
-        suf = " (sim)" if lectura.simulado else ""
-        self.var_escritura_epc_actual.set(
-            self._texto_corto("EPC act.: {0}{1}".format(lectura.epc_en_hex, suf), 64)
-        )
-        if lectura.codigo_decodificado:
-            self.var_escritura_codigo_entrada.set(lectura.codigo_decodificado)
-        self.var_escritura_estado.set("Leído. Escribe código si cambia.")
+        codigo_leido = (lectura.codigo_decodificado or "").strip()
+        self._escritura_codigo_al_escanear = codigo_leido
+        valor = valor_etiqueta_para_operador(lectura.epc_en_hex, codigo_leido or None)
+        texto = "Etiqueta escaneada: {0}".format(valor)
+        if lectura.simulado:
+            texto += " (prueba)"
+        self.var_escritura_etiqueta_leida.set(self._texto_corto(texto, 64))
+        if codigo_leido:
+            self.var_escritura_codigo_entrada.set(codigo_leido)
+            self.var_escritura_estado.set("Revisa el código y pulsa Escribir.")
+        else:
+            self.var_escritura_estado.set("Etiqueta leída. Escribe el código del activo a grabar.")
         self._escritura_calcular_nuevo_epc(silent=True)
 
     def _escritura_calcular_nuevo_epc(self, silent: bool = False):
         codigo = (self.var_escritura_codigo_entrada.get() or "").strip()
         if not codigo:
             self._epc_memoria_escritura_nuevo = ""
-            self.var_escritura_epc_nuevo.set("EPC nuevo: —")
+            self.var_escritura_estado.set("Escribe el código del activo a grabar.")
             return
         epc = self._servicio_escritura.calcular_epc_desde_codigo(codigo)
         if not epc:
             self._epc_memoria_escritura_nuevo = ""
-            self.var_escritura_epc_nuevo.set("EPC nuevo: —")
+            self.var_escritura_estado.set("Código no válido. Revisa e intenta de nuevo.")
             return
         self._epc_memoria_escritura_nuevo = epc
-        self.var_escritura_epc_nuevo.set(self._texto_corto("EPC nuevo: {0}".format(epc), 64))
+        self.var_escritura_estado.set(self._texto_corto("Listo. Se grabará: {0}".format(codigo), 64))
         if not silent:
-            self.var_escritura_estado.set("Listo para escribir.")
+            self.var_escritura_estado.set(self._texto_corto("Listo para grabar etiqueta ({0}).".format(codigo), 64))
 
     def _escritura_ejecutar_programacion(self):
         if not self._epc_memoria_escritura_nuevo:
@@ -1400,16 +1474,15 @@ class AplicacionInventario(tk.Tk):
             self._msg_error("Escritura", str(e))
             return
 
-        epc_anterior = self._epc_memoria_escritura_actual
-        self._epc_memoria_escritura_actual = resultado_escritura.epc_nuevo_en_hex
-        suf = " (sim)" if resultado_escritura.simulado else ""
-        self.var_escritura_epc_actual.set(
-            self._texto_corto("EPC act.: {0}{1}".format(self._epc_memoria_escritura_actual, suf), 64)
+        codigo_nuevo = (self.var_escritura_codigo_entrada.get() or "").strip()
+        codigo_anterior = (self._escritura_codigo_al_escanear or "").strip()
+        mensaje_estado = estado_escritura_programada_operador(codigo_anterior, codigo_nuevo)
+        self._msg_info(
+            "Escritura",
+            "Etiqueta grabada." if not resultado_escritura.simulado else "Prueba: etiqueta grabada (simulado).",
         )
-        self.var_escritura_estado.set(
-            self._texto_corto(estado_escritura_programada(epc_anterior, self._epc_memoria_escritura_actual), 64)
-        )
-        self._msg_info("Escritura", "Etiqueta programada." if not resultado_escritura.simulado else "Simulación: etiqueta programada.")
+        self._reiniciar_pantalla_escritura()
+        self.var_escritura_estado.set(self._texto_corto(mensaje_estado, 64))
 
     def _construir_hid(self):
         """Modo pistola como teclado Bluetooth."""

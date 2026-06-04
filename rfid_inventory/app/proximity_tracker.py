@@ -29,6 +29,40 @@ _BANDAS_RSSI_DBM: tuple[tuple[float, str], ...] = (
 )
 
 
+def barras_senal_desde_rssi(rssi: int | float | None) -> int:
+    """0..4 barras tipo WiFi según intensidad (más barras = más cerca)."""
+    if rssi is None:
+        return 0
+    r = float(rssi)
+    if r >= -48:
+        return 4
+    if r >= -58:
+        return 3
+    if r >= -68:
+        return 2
+    if r >= -78:
+        return 1
+    return 0
+
+
+def texto_proximidad_operador(rssi: int | float | None, *, sin_senal: bool = False) -> str:
+    """Mensaje corto para pantalla, sin mencionar RSSI ni dBm."""
+    if sin_senal:
+        return "Sin señal — acerca la pistola al activo"
+    if rssi is None:
+        return "Pulsa Iniciar y acércate al activo"
+    r = float(rssi)
+    if r >= -48:
+        return "Muy cerca (aprox. menos de 1 m)"
+    if r >= -58:
+        return "Cerca (aprox. 1–3 m)"
+    if r >= -68:
+        return "A distancia media (aprox. 3–6 m)"
+    if r >= -78:
+        return "Lejos (aprox. 6–10 m)"
+    return "Muy lejos (más de 10 m)"
+
+
 def banda_distancia_aproximada(rssi: int | float | None) -> str:
     """Clasificación cualitativa a partir del RSSI absoluto (no calibrada en metros reales)."""
     if rssi is None:

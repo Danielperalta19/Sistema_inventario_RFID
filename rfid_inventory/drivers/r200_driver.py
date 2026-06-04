@@ -34,6 +34,21 @@ class LectorR200:
             return
         self._modulo_rfid = R200(puerto, baudios, debug=debug)
         time.sleep(2.0)
+        self._configurar_modulo_tras_conexion()
+
+    def _configurar_modulo_tras_conexion(self) -> None:
+        """Región US (902–928 MHz, adecuada para México) y demodulador; ignora fallos (p. ej. emulador Arduino)."""
+        if self._modulo_rfid is None:
+            return
+        try:
+            self._modulo_rfid.send_command(0x07, [0x21])
+            self._modulo_rfid.receive()
+        except Exception:
+            pass
+        try:
+            self._modulo_rfid.set_demodulator_params(mixer_g=2, if_g=7, thrd=100)
+        except Exception:
+            pass
 
     def cerrar(self):
         if self._modulo_rfid is None:

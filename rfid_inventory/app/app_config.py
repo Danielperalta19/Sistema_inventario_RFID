@@ -11,7 +11,7 @@ from dataclasses import dataclass
 class ConfiguracionSerial:
     baudios: int = 115200
     puerto_defecto_windows: str = "COM5"
-    puerto_defecto_pi_respaldo: str = "/dev/ttyUSB0"
+    puerto_defecto_pi_respaldo: str = "/dev/serial0"
 
 
 @dataclass(frozen=True)
@@ -21,8 +21,8 @@ class ConfiguracionCatalogo:
 
 @dataclass(frozen=True)
 class ConfiguracionFunciones:
-    escritura_con_hardware: bool = False
-    forzar_simulacion_proximidad: bool = True
+    escritura_con_hardware: bool = True
+    forzar_simulacion_proximidad: bool = False
 
 
 @dataclass(frozen=True)
@@ -68,8 +68,8 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
             _valor_anidado(crudo, "serial", "default_port_windows", default="COM5") or "COM5"
         ),
         puerto_defecto_pi_respaldo=str(
-            _valor_anidado(crudo, "serial", "default_port_pi_fallback", default="/dev/ttyUSB0")
-            or "/dev/ttyUSB0"
+            _valor_anidado(crudo, "serial", "default_port_pi_fallback", default="/dev/serial0")
+            or "/dev/serial0"
         ),
     )
     catalogo = ConfiguracionCatalogo(
@@ -77,10 +77,10 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
     )
     funciones = ConfiguracionFunciones(
         escritura_con_hardware=bool(
-            _valor_anidado(crudo, "features", "write_use_hardware", default=False)
+            _valor_anidado(crudo, "features", "write_use_hardware", default=True)
         ),
         forzar_simulacion_proximidad=bool(
-            _valor_anidado(crudo, "features", "prox_force_sim", default=True)
+            _valor_anidado(crudo, "features", "prox_force_sim", default=False)
         ),
     )
     return ConfiguracionAplicacion(serie=serie, catalogo=catalogo, funciones=funciones)
