@@ -124,6 +124,8 @@ class AplicacionInventario(tk.Tk):
         self._tarea_ui_proximidad = None
         self._gatt_detenido_automaticamente_para_inventario = False
         self._advertido_fallo_sudo_gatt = False
+        # Tras conectar: menu | ubicacion | rastreo | escritura
+        self._destino_tras_conexion = "menu"
 
         self._inicializar_estilos()
 
@@ -621,6 +623,7 @@ class AplicacionInventario(tk.Tk):
         if nombre_marco == "inicio":
             self._marco_inicio.pack(fill="both", expand=True)
         elif nombre_marco == "menu":
+            self._actualizar_estado_lector_en_menu()
             self._marco_menu.pack(fill="both", expand=True)
         elif nombre_marco == "conexion":
             self._marco_conexion.pack(fill="both", expand=True)
@@ -680,6 +683,15 @@ class AplicacionInventario(tk.Tk):
             text="Elige una opción",
             font=("", 8),
             fg="#555",
+        ).pack(pady=(0, 2))
+        self.var_menu_estado_lector = tk.StringVar(value="Lector: desconectado")
+        tk.Label(
+            self._marco_menu,
+            textvariable=self.var_menu_estado_lector,
+            font=("", 8),
+            fg="#444",
+            wraplength=self._WRAP_TEXTO,
+            justify="center",
         ).pack(pady=(0, 4))
 
         def boton_grande(parent, text, command):
@@ -692,6 +704,11 @@ class AplicacionInventario(tk.Tk):
             b.pack(fill="x", padx=10, pady=2, ipady=3)
             return b
 
+        boton_grande(
+            self._marco_menu,
+            "Conectar lector",
+            lambda: self._abrir_pantalla_conexion("menu"),
+        )
         boton_grande(
             self._marco_menu,
             "Inventario en ubicación",
@@ -714,7 +731,7 @@ class AplicacionInventario(tk.Tk):
         )
 
     def _construir_conexion(self):
-        """Lector serial: conectar y seguir a selección de ubicación (flujograma: inventario del lugar)."""
+        """Lector serial: pantalla compartida (menú, inventario, rastreo, escritura)."""
         self._marco_conexion = tk.Frame(self.contenedor)
 
         ttk.Button(
@@ -724,11 +741,12 @@ class AplicacionInventario(tk.Tk):
             command=self._volver_al_menu_principal,
         ).pack(anchor="w", padx=8, pady=(4, 0))
 
-        tk.Label(
+        self._lbl_conexion_titulo = tk.Label(
             self._marco_conexion,
-            text="Inventario en ubicación",
+            text="Conectar lector",
             font=("", 11, "bold"),
-        ).pack(pady=(2, 2))
+        )
+        self._lbl_conexion_titulo.pack(pady=(2, 2))
 
         tk.Label(
             self._marco_conexion,
@@ -761,7 +779,7 @@ class AplicacionInventario(tk.Tk):
             if p:
                 self.var_puerto_serial.set(p)
             else:
-                self.var_puerto_serial.set("/dev/ttyUSB0")
+                self.var_puerto_serial.set(self._configuracion.serie.puerto_defecto_pi_respaldo)
 
         ttk.Button(row, text="Windows", style="Handheld.TButton", command=poner_puerto_windows).pack(side="left", padx=(0, 4))
         ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=poner_puerto_pi).pack(side="left", padx=(0, 0))
@@ -784,15 +802,42 @@ class AplicacionInventario(tk.Tk):
 
         self.btn_continuar = ttk.Button(
             self._marco_conexion,
-            text="Continuar (ubicación)",
+            text="Volver al menú",
             style="HandheldBig.TButton",
-            command=self._continuar_tras_conexion_inventario,
+            command=self._continuar_tras_conexion,
             state="disabled",
         )
         self.btn_continuar.pack(pady=4, ipadx=12, ipady=4)
 
-    def _abrir_pantalla_conexion_inventario(self):
-        """Solo inventario por ubicación usa el puerto serial; aquí se detiene GATT si comparte puerto."""
+    def _textos_pantalla_conexion(self, destino: str) -> tuple[str, str]:
+        titulos = {
+            "menu": "Conectar lector",
+            "ubicacion": "Inventario en ubicación",
+            "rastreo": "Conectar lector (rastreo)",
+            "escritura": "Conectar lector (escritura)",
+        }
+        continuar = {
+            "menu": "Volver al menú",
+            "ubicacion": "Continuar (ubicación)",
+            "rastreo": "Continuar a rastreo",
+            "escritura": "Continuar a escritura",
+        }
+        d = destino if destino in titulos else "menu"
+        return titulos[d], continuar[d]
+
+    def _actualizar_estado_lector_en_menu(self) -> None:
+        if not hasattr(self, "var_menu_estado_lector"):
+            return
+        if self._lector.connected:
+            self.var_menu_estado_lector.set("Lector: conectado")
+        else:
+            self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector»")
+
+    def _abrir_pantalla_conexion(self, destino: str = "menu") -> None:
+        self._destino_tras_conexion = destino
+        titulo, texto_btn = self._textos_pantalla_conexion(destino)
+        self._lbl_conexion_titulo.config(text=titulo)
+        self.btn_continuar.config(text=texto_btn)
         if self._lector.connected:
             self.var_estado_lector.set("Lector: conectado")
             self.btn_conectar_lector.config(state="disabled")
@@ -803,18 +848,26 @@ class AplicacionInventario(tk.Tk):
             self.btn_continuar.config(state="disabled")
         self._mostrar_marco("conexion")
 
-    def _continuar_tras_conexion_inventario(self):
+    def _continuar_tras_conexion(self) -> None:
         if not self._lector.connected:
             self._msg_warning("Lector", "Conecta el lector antes de continuar.")
             return
-        self._mostrar_marco("ubicacion")
+        destino = self._destino_tras_conexion
+        if destino == "ubicacion":
+            self._mostrar_marco("ubicacion")
+        elif destino == "rastreo":
+            self._mostrar_marco("rastreo")
+        elif destino == "escritura":
+            self._mostrar_marco("escritura")
+        else:
+            self._mostrar_marco("menu")
 
     def _entrar_inventario_ubicacion(self):
-        """Inventario por ubicación: conectar lector aquí (el resto del menú no abre el serial)."""
+        """Inventario por ubicación: requiere lector conectado."""
         if self._lector.connected:
             self._mostrar_marco("ubicacion")
         else:
-            self._abrir_pantalla_conexion_inventario()
+            self._abrir_pantalla_conexion("ubicacion")
 
     def _construir_ubicacion(self):
         self._marco_ubicacion = tk.Frame(self.contenedor)
@@ -1226,11 +1279,7 @@ class AplicacionInventario(tk.Tk):
         self._detener_temporizador_escaneo()
         self._ajustar_controles_escaneo_activo(False)
         if not self._lector.connected:
-            self._msg_warning(
-                "Rastreo",
-                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
-            )
-            self._abrir_pantalla_conexion_inventario()
+            self._abrir_pantalla_conexion("rastreo")
             return
         self._mostrar_marco("rastreo")
 
@@ -1242,11 +1291,7 @@ class AplicacionInventario(tk.Tk):
         self._ajustar_controles_escaneo_activo(False)
         self._proximidad_detener()
         if not self._lector.connected:
-            self._msg_warning(
-                "Escribir etiqueta",
-                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
-            )
-            self._abrir_pantalla_conexion_inventario()
+            self._abrir_pantalla_conexion("escritura")
             return
         self._mostrar_marco("escritura")
 
@@ -1303,10 +1348,7 @@ class AplicacionInventario(tk.Tk):
             self._proximidad_iniciar_actualizacion_ui()
             return
         if not self._lector.connected:
-            self._msg_warning(
-                "Rastreo",
-                "Conecta el lector primero:\nInventario en ubicación → Conectar.",
-            )
+            self._msg_warning("Rastreo", "Conecta el lector desde el menú («Conectar lector»).")
             return
 
         def al_tag(tag, _idx):
@@ -1678,6 +1720,7 @@ class AplicacionInventario(tk.Tk):
         self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
         self.btn_conectar_lector.config(state="disabled")
         self.btn_continuar.config(state="normal")
+        self._actualizar_estado_lector_en_menu()
 
     def detener_escaneo(self):
         self._cancelar_inicio_pistoleo_pendiente()
