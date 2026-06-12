@@ -23,12 +23,12 @@ def codigo_activo_o_guion_desde_epc(epc_hex: str) -> str:
 
 
 def valor_etiqueta_para_operador(epc_hex: str, codigo_decodificado: str | None = None) -> str:
-    """Código de activo si existe; si no, el identificador leído en la etiqueta (sin decir EPC)."""
+    """Código de activo si existe; si no, EPC hex (24 caracteres en etiquetas vírgenes)."""
     codigo = (codigo_decodificado or "").strip()
-    if codigo:
+    if len(codigo) >= 3 and codigo.isascii() and codigo.isprintable():
         return codigo
     epc = (epc_hex or "").strip().lower()
-    return epc if epc else "—"
+    return hex_corto(epc, keep=24) if epc else "—"
 
 
 def hex_corto(epc_hex: str, keep: int = 8) -> str:

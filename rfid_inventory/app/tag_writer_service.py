@@ -2,7 +2,7 @@ import os
 import secrets
 from dataclasses import dataclass
 
-from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo
+from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo, entrada_a_epc12_hex
 
 
 @dataclass(frozen=True)
@@ -61,10 +61,7 @@ class ServicioEscrituraEtiquetas:
         )
 
     def calcular_epc_desde_codigo(self, codigo_activo: str) -> str | None:
-        codigo = (codigo_activo or "").strip()
-        if not codigo:
-            return None
-        return codigo_activo_a_epc12_hex(codigo)
+        return entrada_a_epc12_hex(codigo_activo)
 
     def programar_epc(
         self,

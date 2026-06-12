@@ -3,6 +3,7 @@ from typing import Optional
 from typing import Tuple
 
 import serial
+import time
 
 from .constants import CMD_ACQUIRE_TRANSMIT_POWER
 from .constants import CMD_GET_MODULE_INFO
@@ -94,6 +95,27 @@ class R200(R200Interface):
             buf.extend(chunk)
         return bytes(buf)
 
+    def _receive_until_quiet(
+        self, max_wait: float = 0.35, quiet: float = 0.06, chunk_timeout: float = 0.04
+    ) -> bytes:
+        """Lee respuestas del inventario hasta silencio (más rápido que esperar 1 s vacío)."""
+        buf = bytearray()
+        deadline = time.monotonic() + max_wait
+        last_data = time.monotonic()
+        old_timeout = self.port.timeout
+        self.port.timeout = chunk_timeout
+        try:
+            while time.monotonic() < deadline:
+                chunk = self.port.read(512)
+                if chunk:
+                    buf.extend(chunk)
+                    last_data = time.monotonic()
+                elif time.monotonic() - last_data >= quiet:
+                    break
+        finally:
+            self.port.timeout = old_timeout
+        return bytes(buf)
+
     def receive(self) -> List[R200Response]:
         """
         Receive responses from R200 module
@@ -115,43 +137,40 @@ class R200(R200Interface):
             List of R200PoolResponse objects containing tag data
             Optional exception if an error occurs
         """
-        self.send_command(CMD_MULTIPLE_POLL_INSTRUCTION, [0x22, 0x00, 0x0A])
-
-        responses = self.receive()
-
+        # Tercer byte ≈ rondas de inventario (×~100 ms c/u). Hay que esperar a que terminen.
+        poll_units = 0x06
+        self.send_command(CMD_MULTIPLE_POLL_INSTRUCTION, [0x22, 0x00, poll_units])
+        max_wait = poll_units * 0.12 + 0.35
+        buffer = self._receive_until_quiet(max_wait=max_wait, quiet=0.07)
+        responses = self._parse_buffer(bytearray(buffer))
         return self._read_tags(responses)
 
     def read_tags_single(self) -> Tuple[List[R200PoolResponse], Optional[Exception]]:
         """Read RFID tags using single poll instruction (0x22)."""
         self.send_command(CMD_SINGLE_POLL_INSTRUCTION, [])
-        responses = self.receive()
+        buffer = self._receive_until_quiet(max_wait=0.45, quiet=0.07)
+        responses = self._parse_buffer(bytearray(buffer))
         return self._read_tags(responses)
 
-    def set_select_epc96(self, epc_hex: str) -> bool:
-        """Select a single tag by EPC (96-bit) using protocol V2.3.3.
-
-        Uses:
-        - MemBank = EPC (0x01)
-        - Ptr = 0x00000020 bits (skip CRC+PC)
-        - MaskLen = 0x60 bits (96-bit EPC)
-        - Truncate = 0x00
-        """
-        epc_hex = (epc_hex or "").strip().lower()
-        if len(epc_hex) < 24:
-            raise ValueError("EPC hex inválido (se esperan 24 hex / 96-bit).")
-        mask = bytes.fromhex(epc_hex[:24])
-        sel_param = 0x01  # Target=0, Action=0, MemBank=EPC(01)
-        ptr = 0x00000020
-        mask_len = 0x60
+    def set_select_epc_mask(self, mask: bytes, sel_param: int = 0x01, ptr: int = 0x00000020) -> bool:
+        """Select por máscara EPC (protocolo V2.3.3 §5)."""
+        if not mask or len(mask) < 2:
+            raise ValueError("Máscara Select inválida.")
+        sel = int(sel_param) & 0xFF
+        mask_len = len(mask) * 8
         truncate = 0x00
-        params = [sel_param] + list(ptr.to_bytes(4, "big")) + [mask_len, truncate] + list(mask)
+        params = (
+            [sel]
+            + list(int(ptr).to_bytes(4, "big"))
+            + [mask_len, truncate]
+            + list(mask)
+        )
         self.send_command(CMD_SET_SELECT_PARAMETER, params)
-        responses = self.receive()
+        buffer = self._receive_until_quiet(max_wait=0.45, quiet=0.06)
+        responses = self._parse_buffer(bytearray(buffer))
         for resp in responses:
             if resp.command == CMD_SET_SELECT_PARAMETER:
-                # En práctica, algunos firmwares devuelven bien el payload aunque checksum_ok
-                # no siempre se marque (buffer parcial). Nos interesa el código 0x00.
-                return resp.params == [0x00]
+                return bool(resp.params) and resp.params[0] == 0x00
             if resp.command == 0xFF:
                 code = resp.params[0] if resp.params else None
                 raise RuntimeError(f"Select EPC falló (0xFF). Código error: {code}")
@@ -170,10 +189,11 @@ class R200(R200Interface):
         """
         m = int(mode) & 0xFF
         self.send_command(CMD_SET_SEND_SELECT_INSTRUCTION, [m])
-        responses = self.receive()
+        buffer = self._receive_until_quiet(max_wait=0.45, quiet=0.06)
+        responses = self._parse_buffer(bytearray(buffer))
         for resp in responses:
             if resp.command == CMD_SET_SEND_SELECT_INSTRUCTION:
-                if resp.params == [0x00]:
+                if resp.params and resp.params[0] == 0x00:
                     return True
             if resp.command == 0xFF:
                 return False
@@ -183,30 +203,84 @@ class R200(R200Interface):
         """Detiene inventario continuo antes de Select/Write."""
         try:
             self.send_command(CMD_STOP_MULTIPLE_POLL, [])
-            self.receive()
+            buffer = self._receive_until_quiet(max_wait=0.35, quiet=0.06)
+            self._parse_buffer(bytearray(buffer))
         except Exception:
             pass
 
-    def limpiar_filtro_select(self) -> None:
-        """Quita el filtro por EPC tras escritura; el inventario vuelve a ver todas las etiquetas.
+    def set_select_epc96(self, epc_hex: str, sel_param: int = 0x01) -> bool:
+        """Select 96-bit (12 bytes) — compatible con demo (MaskLen 0x60)."""
+        epc_hex = (epc_hex or "").strip().lower()
+        if len(epc_hex) % 2:
+            epc_hex = "0" + epc_hex
+        if len(epc_hex) < 24:
+            raise ValueError("EPC hex inválido (se esperan 24 hex / 96-bit).")
+        return self.set_select_epc_mask(bytes.fromhex(epc_hex[:24]), sel_param=sel_param)
 
-        Tras ``set_select_mode(0x00)`` (escritura), el lector solo respondía a la etiqueta
-        seleccionada. Restauramos modo 0x02 y máscara de 0 bits.
-        """
+    def configurar_select_epc_para_escritura(
+        self, mask: bytes, select_mode: int = 0x02
+    ) -> bool:
+        """Protocolo R200 §5–6: primero parámetros Select (0x0C), luego modo Select (0x12)."""
+        if not self.set_select_epc_mask(mask, sel_param=0x01):
+            return False
+        return self.set_select_mode(select_mode)
+
+    def configurar_select_solo_parametros(
+        self, mask: bytes, sel_param: int = 0x01
+    ) -> bool:
+        """Solo 0x0C — algunos demos envían 0x0C y luego 0x49 sin 0x12."""
+        return self.set_select_epc_mask(mask, sel_param=sel_param)
+
+    def preparar_escritura_minima(self) -> None:
+        """Detiene inventario continuo antes de escribir (sin tocar Select)."""
+        self.detener_poll_multiple()
+
+    def preparar_escritura_sin_select(self) -> bool:
+        """Una sola etiqueta en campo: sin filtro Select (modo 0x01, como varios demos UHF)."""
+        self.preparar_escritura_minima()
+        try:
+            params = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            self.send_command(CMD_SET_SELECT_PARAMETER, params)
+            buffer = self._receive_until_quiet(max_wait=0.35, quiet=0.06)
+            self._parse_buffer(bytearray(buffer))
+        except Exception:
+            pass
+        return self.set_select_mode(0x01)
+
+    @staticmethod
+    def _write_response_ok(resp: R200Response) -> bool:
+        if resp.command != CMD_WRITE_LABEL:
+            return False
+        params = resp.params or []
+        if not params:
+            return False
+        if len(params) == 1:
+            return params[0] == 0x00
+        # Respuesta típica: UL + PC(2) + EPC(12) + status(0x00)
+        return params[-1] == 0x00
+
+    def limpiar_filtro_select(self) -> None:
+        """Quita el filtro por EPC; inventario abierto (Select vacío + modo 0x02)."""
         try:
             self.detener_poll_multiple()
         except Exception:
             pass
         try:
-            # Select sin máscara (0 bits) = sin filtro activo
             params = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
             self.send_command(CMD_SET_SELECT_PARAMETER, params)
-            self.receive()
+            buffer = self._receive_until_quiet(max_wait=0.35, quiet=0.06)
+            self._parse_buffer(bytearray(buffer))
         except Exception:
             pass
         try:
-            # 0x02: Select solo en operaciones distintas al inventario (poll múltiple/simple)
             self.set_select_mode(0x02)
+        except Exception:
+            pass
+
+    def _flush_serial_input(self) -> None:
+        try:
+            if self.port and self.port.is_open:
+                self.port.reset_input_buffer()
         except Exception:
             pass
 
@@ -229,15 +303,31 @@ class R200(R200Interface):
         sa = int(sa_word) & 0xFFFF
         dl = (len(data) // 2) & 0xFFFF
         params = list(ap.to_bytes(4, "big")) + [mb] + list(sa.to_bytes(2, "big")) + list(dl.to_bytes(2, "big")) + list(data)
+        self._flush_serial_input()
         self.send_command(CMD_WRITE_LABEL, params)
-        responses = self.receive()
-        for resp in responses:
-            if resp.command == CMD_WRITE_LABEL:
-                if resp.params and resp.params[-1] == 0x00:
+        # Escritura Gen2 puede tardar 1–3 s; leer hasta silencio prolongado.
+        buffer = bytearray()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            chunk = self._receive_until_quiet(max_wait=0.4, quiet=0.1, chunk_timeout=0.05)
+            if chunk:
+                buffer.extend(chunk)
+            responses = self._parse_buffer(bytearray(buffer))
+            for resp in responses:
+                if self._write_response_ok(resp):
                     return True
-            if resp.command == 0xFF:
-                err = R200ErrorResponse(resp.params or [])
-                raise RuntimeError(err.parse())
+                if resp.command == 0xFF:
+                    err = R200ErrorResponse(resp.params or [])
+                    raise RuntimeError(err.parse())
+            if chunk:
+                continue
+            if buffer:
+                break
+            time.sleep(0.05)
+        if buffer:
+            for resp in self._parse_buffer(bytearray(buffer)):
+                if self._write_response_ok(resp):
+                    return True
         return False
 
     def hw_info(self) -> List[R200PoolResponse]:

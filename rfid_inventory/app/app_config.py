@@ -23,6 +23,7 @@ class ConfiguracionCatalogo:
 class ConfiguracionFunciones:
     escritura_con_hardware: bool = True
     forzar_simulacion_proximidad: bool = False
+    bluetooth_hid_habilitado: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,8 +83,21 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
         forzar_simulacion_proximidad=bool(
             _valor_anidado(crudo, "features", "prox_force_sim", default=False)
         ),
+        bluetooth_hid_habilitado=bool(
+            _valor_anidado(crudo, "features", "bluetooth_hid_enabled", default=False)
+        ),
     )
     return ConfiguracionAplicacion(serie=serie, catalogo=catalogo, funciones=funciones)
+
+
+def bluetooth_hid_habilitado_resuelto(config: ConfiguracionAplicacion) -> bool:
+    """Modo teclado BLE / GATT. Prioridad: env ``RFID_BLUETOOTH_HID`` (1/0) y luego config.json."""
+    v = os.environ.get("RFID_BLUETOOTH_HID", "").strip().lower()
+    if v in {"1", "true", "yes"}:
+        return True
+    if v in {"0", "false", "no"}:
+        return False
+    return bool(config.funciones.bluetooth_hid_habilitado)
 
 
 def hardware_escritura_resuelto(config: ConfiguracionAplicacion) -> bool:

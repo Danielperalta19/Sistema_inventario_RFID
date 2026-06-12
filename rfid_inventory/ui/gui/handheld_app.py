@@ -25,7 +25,11 @@ from rfid_inventory.app.proximity_tracker import (
 )
 from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
 from rfid_inventory.app.tracking_service import ServicioRastreo
-from rfid_inventory.app.app_config import cargar_configuracion_aplicacion, hardware_escritura_resuelto
+from rfid_inventory.app.app_config import (
+    bluetooth_hid_habilitado_resuelto,
+    cargar_configuracion_aplicacion,
+    hardware_escritura_resuelto,
+)
 from rfid_inventory.catalog.catalog_loader import (
     aplanar_ubicaciones_a_mapa_epcs,
     cargar_ubicaciones_anidadas_desde_json,
@@ -120,12 +124,14 @@ class AplicacionInventario(tk.Tk):
             usar_hardware=hardware_escritura_resuelto(self._configuracion)
         )
         self._forzar_sim_proximidad = bool(self._configuracion.funciones.forzar_simulacion_proximidad)
+        self._bluetooth_hid_habilitado = bluetooth_hid_habilitado_resuelto(self._configuracion)
         self._proximidad_activa = False
         self._tarea_ui_proximidad = None
         self._gatt_detenido_automaticamente_para_inventario = False
         self._advertido_fallo_sudo_gatt = False
         # Tras conectar: menu | ubicacion | rastreo | escritura
         self._destino_tras_conexion = "menu"
+        self._puerto_lector_activo = ""
 
         self._inicializar_estilos()
 
@@ -167,17 +173,28 @@ class AplicacionInventario(tk.Tk):
         if self._sin_decoracion_ventana:
             self.after(300, self._maximizar_ventana)
 
-        # En la Pi el puerto serial queda libre para rfid-hid-gatt hasta que el usuario abre inventario.
         if os.name == "posix":
-            self.after(400, self._arranque_priorizar_bluetooth)
+            if self._bluetooth_hid_habilitado:
+                self.after(400, self._arranque_priorizar_bluetooth)
+            else:
+                self.after(400, self._arranque_aislar_gatt)
+
+    def _arranque_aislar_gatt(self) -> None:
+        """Sin Bluetooth HID: detiene rfid-hid-gatt para que no compita con el serial del R200."""
+        threading.Thread(target=self._hilo_detener_gatt_para_inventario, daemon=True).start()
+
+    def _hilo_detener_gatt_para_inventario(self) -> None:
+        self._detener_servicio_gatt_si_activo()
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
-        """Activa advertising BLE (btmgmt) y abre la pantalla HID.
-
-        La UI cambia al instante. El cierre del serial (puede tardar en el driver
-        USB) y el ``systemctl start`` van en hilos aparte para no congelar Tkinter.
-        Requiere sudoers NOPASSWD para el usuario (ej. `user`) en btmgmt.
-        """
+        """Activa advertising BLE (btmgmt) y abre la pantalla HID."""
+        if not self._bluetooth_hid_habilitado:
+            self._msg_info(
+                "Bluetooth",
+                "Modo teclado Bluetooth desactivado en config.json\n"
+                "(features.bluetooth_hid_enabled: false).",
+            )
+            return
         self._mostrar_marco("modo_hid")
         threading.Thread(target=self._hid_hilo_cerrar_serial_y_continuar, daemon=True).start()
 
@@ -203,12 +220,18 @@ class AplicacionInventario(tk.Tk):
 
     def _arranque_priorizar_bluetooth(self) -> None:
         """Al abrir la app en la Pi: GATT activo y puerto serial libre (sin conectar el lector aún)."""
+        if not self._bluetooth_hid_habilitado:
+            self._arranque_aislar_gatt()
+            return
         threading.Thread(
             target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False),
             daemon=True,
         ).start()
 
     def _hilo_activar_gatt_y_ble(self, mostrar_errores_ui: bool = False) -> None:
+        if not self._bluetooth_hid_habilitado:
+            self._hilo_detener_gatt_para_inventario()
+            return
         self._intentar_reanudar_gatt_si_lo_pausamos()
         self._asegurar_servicio_gatt_en_modo_hid()
         if os.name != "posix":
@@ -272,19 +295,23 @@ class AplicacionInventario(tk.Tk):
             pass
 
     def _volver_al_menu_principal(self) -> None:
-        """Menú principal: suelta el serial en la Pi para que rfid-hid-gatt pueda usar el lector."""
+        """Menú principal (mantiene el lector conectado para cambiar de módulo sin reconectar)."""
         self._detener_actividad_lector_en_ui()
         self._mostrar_marco("menu")
         if os.name != "posix":
             return
 
         def hilo():
-            try:
-                if self._lector.connected:
-                    self._lector.cerrar()
-            except Exception:
-                pass
-            self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False)
+            if self._bluetooth_hid_habilitado:
+                try:
+                    if self._lector.connected:
+                        self._lector.cerrar()
+                        self._puerto_lector_activo = ""
+                except Exception:
+                    pass
+                self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False)
+            else:
+                self._hilo_detener_gatt_para_inventario()
 
         threading.Thread(target=hilo, daemon=True).start()
 
@@ -400,8 +427,16 @@ class AplicacionInventario(tk.Tk):
         except Exception:
             return False
 
+    def _detener_servicio_gatt_si_activo(self) -> None:
+        if self._servicio_rfid_hid_gatt_activo():
+            if self._sudo_systemctl_gatt("stop"):
+                self._gatt_detenido_automaticamente_para_inventario = True
+
     def _asegurar_puerto_sin_servicio_gatt_conflicto(self) -> None:
         """Detiene rfid-hid-gatt sin pedir contraseña si está configurado sudo -n (instalación típica)."""
+        if not self._bluetooth_hid_habilitado:
+            self._detener_servicio_gatt_si_activo()
+            return
         if not self._hay_conflicto_hid_gatt_puerto():
             return
         if self._sudo_systemctl_gatt("stop"):
@@ -424,6 +459,8 @@ class AplicacionInventario(tk.Tk):
 
     def _intentar_reanudar_gatt_si_lo_pausamos(self) -> None:
         """Al volver al modo Bluetooth, reactiva el servicio si esta app lo había parado."""
+        if not self._bluetooth_hid_habilitado:
+            return
         if not self._gatt_detenido_automaticamente_para_inventario:
             return
         if self._sudo_systemctl_gatt("start"):
@@ -725,11 +762,12 @@ class AplicacionInventario(tk.Tk):
             "Escribir etiqueta",
             self._entrar_escritura,
         )
-        boton_grande(
-            self._marco_menu,
-            "Modo Lector Bluetooth",
-            self._habilitar_publicidad_ble_y_abrir_modo_hid,
-        )
+        if self._bluetooth_hid_habilitado:
+            boton_grande(
+                self._marco_menu,
+                "Modo Lector Bluetooth",
+                self._habilitar_publicidad_ble_y_abrir_modo_hid,
+            )
 
     def _construir_conexion(self):
         """Lector serial: pantalla compartida (menú, inventario, rastreo, escritura)."""
@@ -830,23 +868,34 @@ class AplicacionInventario(tk.Tk):
         if not hasattr(self, "var_menu_estado_lector"):
             return
         if self._lector.connected:
-            self.var_menu_estado_lector.set("Lector: conectado")
+            puerto = (self._puerto_lector_activo or "").strip()
+            if puerto:
+                self.var_menu_estado_lector.set("Lector conectado ({0})".format(puerto))
+            else:
+                self.var_menu_estado_lector.set("Lector: conectado")
         else:
-            self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector»")
+            self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector» una vez")
+
+    def _ir_a_modulo_con_lector(self, marco_destino: str, preparar=None) -> None:
+        """Abre un módulo; si el lector ya está conectado no vuelve a pedir conexión."""
+        if callable(preparar):
+            preparar()
+        if self._lector.connected:
+            self._mostrar_marco(marco_destino)
+        else:
+            self._abrir_pantalla_conexion(marco_destino)
 
     def _abrir_pantalla_conexion(self, destino: str = "menu") -> None:
         self._destino_tras_conexion = destino
+        if self._lector.connected:
+            self._continuar_tras_conexion()
+            return
         titulo, texto_btn = self._textos_pantalla_conexion(destino)
         self._lbl_conexion_titulo.config(text=titulo)
         self.btn_continuar.config(text=texto_btn)
-        if self._lector.connected:
-            self.var_estado_lector.set("Lector: conectado")
-            self.btn_conectar_lector.config(state="disabled")
-            self.btn_continuar.config(state="normal")
-        else:
-            self.var_estado_lector.set("Lector: desconectado")
-            self.btn_conectar_lector.config(state="normal")
-            self.btn_continuar.config(state="disabled")
+        self.var_estado_lector.set("Lector: desconectado")
+        self.btn_conectar_lector.config(state="normal")
+        self.btn_continuar.config(state="disabled")
         self._mostrar_marco("conexion")
 
     def _continuar_tras_conexion(self) -> None:
@@ -864,11 +913,8 @@ class AplicacionInventario(tk.Tk):
             self._mostrar_marco("menu")
 
     def _entrar_inventario_ubicacion(self):
-        """Inventario por ubicación: requiere lector conectado."""
-        if self._lector.connected:
-            self._mostrar_marco("ubicacion")
-        else:
-            self._abrir_pantalla_conexion("ubicacion")
+        """Inventario por ubicación (lector conectado una vez para toda la sesión)."""
+        self._ir_a_modulo_con_lector("ubicacion")
 
     def _construir_ubicacion(self):
         self._marco_ubicacion = tk.Frame(self.contenedor)
@@ -1272,29 +1318,22 @@ class AplicacionInventario(tk.Tk):
         )
         self.btn_proximidad_detener.grid(row=0, column=1, sticky="ew", padx=(3, 0), ipady=1)
 
-    def _entrar_rastreo(self):
-        # Evita que el scanner quede leyendo en background.
+    def _preparar_salir_modo_escaneo(self) -> None:
         self._cancelar_inicio_pistoleo_pendiente()
         self._escaner.reanudar()
         self._escaner.detener()
         self._detener_temporizador_escaneo()
         self._ajustar_controles_escaneo_activo(False)
-        if not self._lector.connected:
-            self._abrir_pantalla_conexion("rastreo")
-            return
-        self._mostrar_marco("rastreo")
+
+    def _entrar_rastreo(self):
+        self._ir_a_modulo_con_lector("rastreo", preparar=self._preparar_salir_modo_escaneo)
 
     def _entrar_escritura(self):
-        self._cancelar_inicio_pistoleo_pendiente()
-        self._escaner.reanudar()
-        self._escaner.detener()
-        self._detener_temporizador_escaneo()
-        self._ajustar_controles_escaneo_activo(False)
-        self._proximidad_detener()
-        if not self._lector.connected:
-            self._abrir_pantalla_conexion("escritura")
-            return
-        self._mostrar_marco("escritura")
+        def preparar():
+            self._preparar_salir_modo_escaneo()
+            self._proximidad_detener()
+
+        self._ir_a_modulo_con_lector("escritura", preparar=preparar)
 
     def _rastreo_normalizar_entrada(self, texto: str) -> tuple[str, str]:
         return self._servicio_rastreo.normalizar_entrada(texto)
@@ -1470,6 +1509,7 @@ class AplicacionInventario(tk.Tk):
         # (la simulación/hardware la gestiona ServicioEscrituraEtiquetas)
 
     def _escritura_escanear_una_vez(self):
+        self._escaner.detener()
         try:
             lectura = self._servicio_escritura.escanear_una_etiqueta(self._lector)
         except Exception as e:
@@ -1724,10 +1764,13 @@ class AplicacionInventario(tk.Tk):
         except Exception as e:
             self._msg_error("Error", str(e))
             return
+        self._puerto_lector_activo = port
         self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
         self.btn_conectar_lector.config(state="disabled")
         self.btn_continuar.config(state="normal")
         self._actualizar_estado_lector_en_menu()
+        if self._destino_tras_conexion != "menu":
+            self._continuar_tras_conexion()
 
     def detener_escaneo(self):
         self._cancelar_inicio_pistoleo_pendiente()

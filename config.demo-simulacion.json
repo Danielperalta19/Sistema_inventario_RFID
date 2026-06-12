@@ -9,6 +9,7 @@
   },
   "features": {
     "write_use_hardware": false,
-    "prox_force_sim": true
+    "prox_force_sim": true,
+    "bluetooth_hid_enabled": false
   }
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rfid_inventory.catalog.epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo
+from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo, entrada_a_epc12_hex, es_epc_hex_24
 
 
 @dataclass(frozen=True)
@@ -28,14 +28,12 @@ class ServicioRastreo:
         if not en_bruto:
             return ("", "")
         ficha = en_bruto.split(",")[0].strip().split()[0].strip()
-        ficha_min = ficha.lower()
-        hex_validos = "0123456789abcdef"
-        if len(ficha_min) >= 24 and all(c in hex_validos for c in ficha_min[:24]):
-            epc = ficha_min[:24]
+        epc = entrada_a_epc12_hex(ficha)
+        if not epc:
+            return ("", "")
+        if es_epc_hex_24(ficha):
             return (epc, epc12_hex_a_codigo_activo(epc))
-        codigo = ficha
-        epc = codigo_activo_a_epc12_hex(codigo)
-        return (epc, codigo)
+        return (epc, ficha)
 
     def rastrear(self, texto: str) -> ResultadoRastreo | None:
         epc, codigo = self.normalizar_entrada(texto)

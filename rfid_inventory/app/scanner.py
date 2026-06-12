@@ -76,4 +76,4 @@ class Escaner:
                     self._epcs_vistos.add(tag.epc_hex)
                     self._ultimo_rssi_por_epc[tag.epc_hex] = tag.rssi
                 al_leer_etiqueta(tag, indice_en_lote)
-            time.sleep(0.04)
+            time.sleep(0.01)

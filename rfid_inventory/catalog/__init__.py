@@ -6,7 +6,12 @@ from .catalog_loader import (
     cargar_ubicaciones_anidadas_desde_json,
     rutas_catalogo_por_defecto,
 )
-from .epc12_codec import codigo_activo_a_epc12_hex, epc12_hex_a_codigo_activo
+from .epc12_codec import (
+    codigo_activo_a_epc12_hex,
+    epc12_hex_a_codigo_activo,
+    entrada_a_epc12_hex,
+    es_epc_hex_24,
+)
 
 __all__ = [
     "RutasCatalogo",
@@ -15,4 +20,6 @@ __all__ = [
     "aplanar_ubicaciones_a_mapa_epcs",
     "codigo_activo_a_epc12_hex",
     "epc12_hex_a_codigo_activo",
+    "entrada_a_epc12_hex",
+    "es_epc_hex_24",
 ]

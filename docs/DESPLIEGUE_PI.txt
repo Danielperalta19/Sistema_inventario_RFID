@@ -60,7 +60,25 @@ Requisitos: Pi OS con escritorio, repo en la Pi, venv en la raíz (Bookworm no d
   aparece el teclado integrado abajo (dígitos, letras, ESPACIO, <-, OK).
   Debe verse la fila inferior completa; si no, reinicia la app tras git pull.
 
-7. Bluetooth (mensaje «Emparejar» en la Pi)
+7. Aislar inventario (sin Bluetooth / GATT)
+
+  Para que el lector R200 no compita con rfid-hid-gatt por el serial:
+
+  a) En config.json del repo:
+       "bluetooth_hid_enabled": false
+
+  b) En la Pi (una vez), detener servicios:
+       cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid/scripts
+       chmod +x desactivar_hid_para_inventario.sh
+       sudo ./desactivar_hid_para_inventario.sh
+
+  c) Reinicia la app. El menú ya no muestra «Modo Lector Bluetooth».
+     Al abrir y al conectar lector, la app intenta parar rfid-hid-gatt si sigue activo.
+
+  Para volver a activar HID más adelante: bluetooth_hid_enabled: true y
+  sudo systemctl enable --now rfid-hid-gatt.service
+
+8. Bluetooth (mensaje «Emparejar» en la Pi)
 
   Si la ventana tapa el diálogo del sistema, minimiza la app desde el escritorio
   o usa el panel de Bluetooth de Pi OS antes de entrar al modo teclado desde el menú.
