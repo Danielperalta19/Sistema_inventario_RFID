@@ -81,17 +81,12 @@ class RutasCatalogo:
     activos_paths: list[str]
 
 
-def rutas_catalogo_por_defecto(ruta_raiz_repositorio: str, *, prefer_web_dir: bool = True) -> RutasCatalogo:
-    """Conveniencia: rutas típicas del repo (`web/` o `data/catalog_ejemplo/` según preferencia)."""
+def rutas_catalogo_por_defecto(ruta_raiz_repositorio: str) -> RutasCatalogo:
+    """Rutas del catálogo en ``rfid_inventory/pi_ble_hid/web/``."""
     web_dir = os.path.join(ruta_raiz_repositorio, "rfid_inventory", "pi_ble_hid", "web")
-    data_dir = os.path.join(ruta_raiz_repositorio, "rfid_inventory", "data", "catalog_ejemplo")
-    if prefer_web_dir:
-        dirs = [web_dir, data_dir]
-    else:
-        dirs = [data_dir, web_dir]
     return RutasCatalogo(
-        ubicaciones_paths=[os.path.join(d, "ubicacionesComputacion.json") for d in dirs],
-        activos_paths=[os.path.join(d, "activosPiso2_Computacion.json") for d in dirs],
+        ubicaciones_paths=[os.path.join(web_dir, "ubicacionesComputacion.json")],
+        activos_paths=[os.path.join(web_dir, "activosPiso2_Computacion.json")],
     )
 
 

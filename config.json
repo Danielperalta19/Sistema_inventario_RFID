@@ -2,10 +2,8 @@
   "serial": {
     "baud": 115200,
     "default_port_windows": "COM5",
-    "default_port_pi_fallback": "/dev/serial0"
-  },
-  "catalog": {
-    "prefer_web_dir": true
+    "default_port_pi_fallback": "/dev/serial0",
+    "auto_connect_on_start": true
   },
   "features": {
     "write_use_hardware": true,

@@ -17,7 +17,7 @@ Pantalla de referencia de la GUI: **480×320** (p. ej. Waveshare en la Pi).
 python -m rfid_inventory.ui.gui.handheld_app
 ```
 
-Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). La librería `rfid_r200` va **incluida** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`).
+Dependencias: `requirements.txt` (`pyserial`). La librería `rfid_r200` va **incluida** en `rfid_inventory/vendor/` (GPL-3.0, ver `vendor/LICENSE-rfid-r200.txt`).
 
 **Documentación operativa (Pi, Bluetooth):** carpeta [`docs/`](docs/LEEME.txt) — empezar por `docs/DESPLIEGUE_PI.txt` para despliegue en el lector.
 
@@ -25,9 +25,9 @@ Dependencias: `requirements.txt` (`pyserial` + `pyserial-asyncio`). La librería
 
 ## Flujo de la GUI (pantallas)
 
-1. **Inicio** → botón que lleva a **Conectar lector**.
-2. **Conectar lector** → puerto/baud, botones rápidos Windows / Raspberry Pi, **Conectar**, luego **Continuar** al menú (o al inventario si el flujo lo pide).
-3. **Menú** → cuatro módulos:
+1. **Inicio** → **Menú** (en la Pi, con `serial.auto_connect_on_start: true`, el lector se conecta solo al abrir).
+2. **Conectar lector** (solo si hace falta) → puerto/baud, **Conectar**, luego **Continuar**.
+3. **Menú** → módulos:
    - **Inventario en ubicación** → **Ubicación** (edificio + sala) → **Escaneo** (lista de esperados; **Trigger** / **Detener**; sin log de lecturas en pantalla) → **Resultados** (filtros; **Actualizar tipoUbicacion** genera JSON de sesión; doble clic → **Detalle**).
    - **Rastrear activo** → búsqueda por código; proximidad (en demo suele ser **RSSI simulado** según `config.json`).
    - **Escribir tag** → escanear / escribir (simulado o real según configuración).
@@ -43,8 +43,7 @@ No hay modo CLI en este repo (solo la GUI anterior se eliminó a propósito).
 
 | Qué | Dónde |
 | --- | --- |
-| Puerto y baud por defecto al abrir “Conectar” | `config.json` → `serial.*` |
-| Orden de búsqueda de JSON de catálogo (web vs data) | `config.json` → `catalog.prefer_web_dir` (usa `rfid_inventory/catalog/catalog_loader.py` → `rutas_catalogo_por_defecto`) |
+| Puerto, baud y auto-conexión al iniciar | `config.json` → `serial.*` (`auto_connect_on_start`, env `RFID_AUTO_CONNECT`) |
 | Escritura real de EPC vs simulación | `config.json` → `features.write_use_hardware` y/o variable de entorno `RFID_WRITE_USE_HARDWARE` (prioridad: **env** si está definida como 1/0/true/false/yes/no) |
 | Rastreo: forzar RSSI simulado aunque haya lector | `config.json` → `features.prox_force_sim` |
 | Botones Windows / Raspberry en conectar | Código: `handheld_app.py` (sugerencia de `/dev/serial/by-id/`) |
@@ -55,7 +54,7 @@ No hay modo CLI en este repo (solo la GUI anterior se eliminó a propósito).
 
 | Qué | Dónde |
 | --- | --- |
-| Archivos JSON de ejemplo / operación | `rfid_inventory/pi_ble_hid/web/ubicacionesComputacion.json` y `activosPiso2_Computacion.json` (fallback opcional: `rfid_inventory/data/catalog_ejemplo/` si existiera) |
+| Archivos JSON de catálogo | `rfid_inventory/pi_ble_hid/web/ubicacionesComputacion.json` y `activosPiso2_Computacion.json` |
 | Unión ubicación ↔ activo | Por **`idUbicacion`** en el JSON de activos y filas de ubicaciones; lógica en `catalog_loader.py` |
 
 ### Raspberry Pi: Bluetooth HID + autostart
@@ -93,7 +92,7 @@ Ejemplo y significado de claves:
 - **`serial.baud`**: baud por defecto en la pantalla de conectar (suele ser `115200`).
 - **`serial.default_port_windows`**: texto inicial del puerto en Windows (p. ej. `COM5`).
 - **`serial.default_port_pi_fallback`**: si no hay `/dev/serial/by-id/`, se usa este valor como respaldo en Linux.
-- **`catalog.prefer_web_dir`**: si es `true`, se intenta primero el catálogo en `pi_ble_hid/web/`; si es `false`, primero `data/catalog_ejemplo/`.
+- **`serial.auto_connect_on_start`**: en la Pi, conectar el lector al abrir la app (env `RFID_AUTO_CONNECT`).
 - **`features.write_use_hardware`**: por defecto `true` (escritura real). Con `false` o `RFID_WRITE_USE_HARDWARE=0` vuelve la simulación (útil con emulador Arduino sin módulo).
 - **`features.prox_force_sim`**: por defecto `false` (RSSI real con lector conectado). Con `true` el rastreo usa RSSI simulado aunque haya hardware.
 - **`serial.default_port_pi_fallback`**: por defecto `/dev/serial0` (UART GPIO en Pi).

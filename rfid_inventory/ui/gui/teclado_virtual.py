@@ -301,24 +301,3 @@ class TecladoVirtual:
             self._entrada.icursor(tk.INSERT)
         except tk.TclError:
             pass
-
-
-def _demo() -> None:
-    root = tk.Tk()
-    root.title("Teclado virtual")
-    root.geometry("480x320")
-    root.minsize(480, 320)
-    root.maxsize(480, 320)
-
-    marco = tk.Frame(root)
-    marco.pack(fill="both", expand=True, padx=8, pady=8)
-    tk.Label(marco, text="Toca el campo (el teclado se superpone):").pack(anchor="w")
-    tk.Entry(marco, font=("", 10)).pack(fill="x", pady=8)
-
-    teclado = TecladoVirtual(root)
-    teclado.instalar_en(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    _demo()

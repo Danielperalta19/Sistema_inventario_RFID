@@ -57,7 +57,7 @@ Reparación rápida en la Pi (recomendado tras subir el proyecto)
   2) Abre "Bluetooth LE Explorer" (Microsoft Store).
   3) Busca la Pi > Pair.
   4) Pulsa Connect y deja que quede en estado conectado (no solo emparejado).
-  5) Bloc de notas o scanner_inventario_prueba.html para probar.
+  5) Bloc de notas para probar.
 
 4. Confirmación en la Pi
 
@@ -66,7 +66,7 @@ Reparación rápida en la Pi (recomendado tras subir el proyecto)
 
 5. Probar
 
-  Bloc de notas, o rfid_inventory/pi_ble_hid/web/scanner_inventario_prueba.html
+  Bloc de notas (o cualquier campo de texto) en el PC emparejado.
 
   Desde la GUI de la pistola: menú Bluetooth HID cierra el serial y arranca GATT.
   No uses inventario y HID a la vez en el mismo puerto (/etc/default/rfid-hid-gatt).

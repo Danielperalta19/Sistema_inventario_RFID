@@ -247,59 +247,6 @@ class CommonR200Interface:
         return pool, err
 
 
-class R200AsyncInterface(ABC, CommonR200Interface):
-    @abstractmethod
-    async def close(self) -> None:
-        pass
-
-    @abstractmethod
-    async def send_command(self, command: int, parameters: List[int]) -> None:
-        pass
-
-    @abstractmethod
-    async def receive(self) -> List[R200Response]:
-        pass
-
-    @abstractmethod
-    async def read_tags(self) -> List[R200PoolResponse]:
-        pass
-
-    @abstractmethod
-    def _read_all_available(self) -> bytes:
-        pass
-
-    @abstractmethod
-    async def hw_info(self) -> List[R200PoolResponse]:
-        pass
-
-    @abstractmethod
-    async def get_power(self) -> float:
-        pass
-
-    @abstractmethod
-    async def get_demodulator_params(self) -> dict[str, int]:
-        """Get demodulator parameters"""
-        """ Returns a dict with the parameters """
-        """
-        Sent: aa00f10000f1dd
-        [RX] aa01f10004020600b0aedd
-        Buffer: aa01f10004020600b0aedd
-        Demodulator parameters: {'Mixer_ G': 2, 'IF_ G': 6, 'Signal demodulation threshold Thrd:': 176}
-        """
-        pass
-
-    @abstractmethod
-    async def set_demodulator_params(self, mixer_g: int, if_g: int, thrd: int) -> bool:
-        """Set demodulator parameters"""
-        """ Returns a bool """
-        """
-        set_demodulator_params(mixer_g=2, if_g=7, thrd=100)
-        Sent: aa00f000040207006461dd
-        Buffer: aa01f0000100f2dd
-        """
-        pass
-
-
 class R200Interface(ABC, CommonR200Interface):
     @abstractmethod
     def close(self) -> None:

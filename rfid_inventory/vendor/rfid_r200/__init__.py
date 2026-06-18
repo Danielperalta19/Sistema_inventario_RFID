@@ -39,20 +39,11 @@ from .utils import R200PoolResponse
 from .utils import R200Response
 
 
-def __getattr__(name):
-    if name == "R200Async":
-        from .rfid_reader_async import R200Async
-
-        return R200Async
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
     # Version
     "__version__",
     # Main classes
     "R200",
-    "R200Async",
     # Data structures
     "R200PoolResponse",
     "R200Response",

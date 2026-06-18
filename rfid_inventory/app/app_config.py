@@ -12,11 +12,7 @@ class ConfiguracionSerial:
     baudios: int = 115200
     puerto_defecto_windows: str = "COM5"
     puerto_defecto_pi_respaldo: str = "/dev/serial0"
-
-
-@dataclass(frozen=True)
-class ConfiguracionCatalogo:
-    preferir_directorio_web: bool = True
+    auto_conectar_al_iniciar: bool = True
 
 
 @dataclass(frozen=True)
@@ -29,7 +25,6 @@ class ConfiguracionFunciones:
 @dataclass(frozen=True)
 class ConfiguracionAplicacion:
     serie: ConfiguracionSerial
-    catalogo: ConfiguracionCatalogo
     funciones: ConfiguracionFunciones
 
 
@@ -51,7 +46,6 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
     if not os.path.isfile(ruta):
         return ConfiguracionAplicacion(
             serie=ConfiguracionSerial(),
-            catalogo=ConfiguracionCatalogo(),
             funciones=ConfiguracionFunciones(),
         )
     try:
@@ -59,7 +53,6 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
     except Exception:
         return ConfiguracionAplicacion(
             serie=ConfiguracionSerial(),
-            catalogo=ConfiguracionCatalogo(),
             funciones=ConfiguracionFunciones(),
         )
 
@@ -72,9 +65,9 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
             _valor_anidado(crudo, "serial", "default_port_pi_fallback", default="/dev/serial0")
             or "/dev/serial0"
         ),
-    )
-    catalogo = ConfiguracionCatalogo(
-        preferir_directorio_web=bool(_valor_anidado(crudo, "catalog", "prefer_web_dir", default=True)),
+        auto_conectar_al_iniciar=bool(
+            _valor_anidado(crudo, "serial", "auto_connect_on_start", default=True)
+        ),
     )
     funciones = ConfiguracionFunciones(
         escritura_con_hardware=bool(
@@ -87,7 +80,7 @@ def cargar_configuracion_aplicacion(ruta_raiz_repositorio: str) -> Configuracion
             _valor_anidado(crudo, "features", "bluetooth_hid_enabled", default=False)
         ),
     )
-    return ConfiguracionAplicacion(serie=serie, catalogo=catalogo, funciones=funciones)
+    return ConfiguracionAplicacion(serie=serie, funciones=funciones)
 
 
 def bluetooth_hid_habilitado_resuelto(config: ConfiguracionAplicacion) -> bool:
@@ -98,6 +91,16 @@ def bluetooth_hid_habilitado_resuelto(config: ConfiguracionAplicacion) -> bool:
     if v in {"0", "false", "no"}:
         return False
     return bool(config.funciones.bluetooth_hid_habilitado)
+
+
+def auto_conectar_lector_resuelto(config: ConfiguracionAplicacion) -> bool:
+    """Conexión automática al abrir la app. Prioridad: env ``RFID_AUTO_CONNECT`` y luego config."""
+    v = os.environ.get("RFID_AUTO_CONNECT", "").strip().lower()
+    if v in {"1", "true", "yes"}:
+        return True
+    if v in {"0", "false", "no"}:
+        return False
+    return bool(config.serie.auto_conectar_al_iniciar)
 
 
 def hardware_escritura_resuelto(config: ConfiguracionAplicacion) -> bool:

@@ -26,6 +26,7 @@ from rfid_inventory.app.proximity_tracker import (
 from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
 from rfid_inventory.app.tracking_service import ServicioRastreo
 from rfid_inventory.app.app_config import (
+    auto_conectar_lector_resuelto,
     bluetooth_hid_habilitado_resuelto,
     cargar_configuracion_aplicacion,
     hardware_escritura_resuelto,
@@ -109,9 +110,7 @@ class AplicacionInventario(tk.Tk):
         self._escaner = Escaner(self._lector)
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
         self._configuracion = cargar_configuracion_aplicacion(repo_root)
-        rutas_catalogo = rutas_catalogo_por_defecto(
-            repo_root, prefer_web_dir=self._configuracion.catalogo.preferir_directorio_web
-        )
+        rutas_catalogo = rutas_catalogo_por_defecto(repo_root)
         self._ubicaciones_anidadas = (
             cargar_ubicaciones_anidadas_desde_json(rutas_catalogo) or _ubicaciones_ejemplo_anidadas()
         )
@@ -125,6 +124,8 @@ class AplicacionInventario(tk.Tk):
         )
         self._forzar_sim_proximidad = bool(self._configuracion.funciones.forzar_simulacion_proximidad)
         self._bluetooth_hid_habilitado = bluetooth_hid_habilitado_resuelto(self._configuracion)
+        self._auto_conectar_lector = auto_conectar_lector_resuelto(self._configuracion)
+        self._conexion_automatica_en_curso = False
         self._proximidad_activa = False
         self._tarea_ui_proximidad = None
         self._gatt_detenido_automaticamente_para_inventario = False
@@ -185,6 +186,8 @@ class AplicacionInventario(tk.Tk):
 
     def _hilo_detener_gatt_para_inventario(self) -> None:
         self._detener_servicio_gatt_si_activo()
+        time.sleep(0.2)
+        self._programar_conexion_automatica_si_aplica()
 
     def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
         """Activa advertising BLE (btmgmt) y abre la pantalla HID."""
@@ -353,6 +356,99 @@ class AplicacionInventario(tk.Tk):
         if pl.startswith("/dev/ttyacm"):
             return "/dev/ttyACM" + p[len("/dev/ttyacm") :]
         return p
+
+    def _puerto_serial_defecto(self) -> str:
+        if os.name == "posix":
+            sugerido = self._sugerir_puerto_serial_pi()
+            if sugerido:
+                return self._normalizar_texto_puerto_serial(sugerido)
+            return self._normalizar_texto_puerto_serial(
+                self._configuracion.serie.puerto_defecto_pi_respaldo
+            )
+        return self._configuracion.serie.puerto_defecto_windows
+
+    def _auto_conexion_lector_habilitada(self) -> bool:
+        if not self._auto_conectar_lector:
+            return False
+        if self._bluetooth_hid_habilitado:
+            return False
+        return True
+
+    def _programar_conexion_automatica_si_aplica(self) -> None:
+        if not self._auto_conexion_lector_habilitada():
+            return
+        if self._lector.connected or self._conexion_automatica_en_curso:
+            return
+        threading.Thread(target=self._hilo_conexion_automatica_lector, daemon=True).start()
+
+    def _hilo_conexion_automatica_lector(self) -> None:
+        self._conexion_automatica_en_curso = True
+        try:
+            try:
+                self.after(0, lambda: self._marcar_estado_lector_conectando())
+            except Exception:
+                pass
+            if os.name == "posix" and not self._bluetooth_hid_habilitado:
+                self._detener_servicio_gatt_si_activo()
+                time.sleep(0.25)
+            port = self._puerto_serial_defecto()
+            baud = int(self._configuracion.serie.baudios)
+            if not port:
+                try:
+                    self.after(0, self._marcar_estado_lector_sin_puerto)
+                except Exception:
+                    pass
+                return
+            self._lector.conectar(port, baud, debug=False)
+
+            def ok(p=port, b=baud):
+                self._finalizar_conexion_lector_en_ui(p, b, automatico=True)
+
+            try:
+                self.after(0, ok)
+            except Exception:
+                pass
+        except Exception as e:
+            msg = str(e)
+
+            def fallo(m=msg):
+                self._marcar_estado_lector_fallo_autoconexion(m)
+
+            try:
+                self.after(0, fallo)
+            except Exception:
+                pass
+        finally:
+            self._conexion_automatica_en_curso = False
+
+    def _marcar_estado_lector_conectando(self) -> None:
+        if hasattr(self, "var_menu_estado_lector"):
+            self.var_menu_estado_lector.set("Lector: conectando…")
+
+    def _marcar_estado_lector_sin_puerto(self) -> None:
+        if hasattr(self, "var_menu_estado_lector"):
+            self.var_menu_estado_lector.set("Lector: sin puerto serial detectado")
+
+    def _marcar_estado_lector_fallo_autoconexion(self, detalle: str) -> None:
+        if hasattr(self, "var_menu_estado_lector"):
+            corto = self._texto_corto((detalle or "").strip(), 40) or "error al conectar"
+            self.var_menu_estado_lector.set("Lector: desconectado ({0})".format(corto))
+
+    def _finalizar_conexion_lector_en_ui(self, port: str, baud: int, *, automatico: bool = False) -> None:
+        self._puerto_lector_activo = port
+        if hasattr(self, "var_puerto_serial"):
+            self.var_puerto_serial.set(port)
+        if hasattr(self, "var_baudios"):
+            self.var_baudios.set(str(baud))
+        if hasattr(self, "var_estado_lector"):
+            self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
+        if hasattr(self, "btn_conectar_lector"):
+            self.btn_conectar_lector.config(state="disabled")
+        if hasattr(self, "btn_continuar"):
+            self.btn_continuar.config(state="normal")
+        self._actualizar_estado_lector_en_menu()
+        if not automatico and self._destino_tras_conexion != "menu":
+            self._continuar_tras_conexion()
 
     def _rfid_port_en_default_hid_gatt(self) -> str | None:
         ruta = "/etc/default/rfid-hid-gatt"
@@ -705,8 +801,12 @@ class AplicacionInventario(tk.Tk):
             self._marco_inicio,
             text="Iniciar",
             style="HandheldBig.TButton",
-            command=lambda: self._mostrar_marco("menu"),
+            command=self._entrar_menu_desde_inicio,
         ).pack(fill="x", padx=24, ipady=4)
+
+    def _entrar_menu_desde_inicio(self) -> None:
+        self._mostrar_marco("menu")
+        self._programar_conexion_automatica_si_aplica()
 
     def _construir_menu(self):
         self._marco_menu = tk.Frame(self.contenedor)
@@ -874,7 +974,14 @@ class AplicacionInventario(tk.Tk):
             else:
                 self.var_menu_estado_lector.set("Lector: conectado")
         else:
-            self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector» una vez")
+            if self._conexion_automatica_en_curso:
+                self.var_menu_estado_lector.set("Lector: conectando…")
+            elif self._auto_conexion_lector_habilitada():
+                self.var_menu_estado_lector.set(
+                    "Lector: desconectado — usa «Conectar lector» si no conectó solo"
+                )
+            else:
+                self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector» una vez")
 
     def _ir_a_modulo_con_lector(self, marco_destino: str, preparar=None) -> None:
         """Abre un módulo; si el lector ya está conectado no vuelve a pedir conexión."""
@@ -1745,12 +1852,7 @@ class AplicacionInventario(tk.Tk):
             self.var_estado_lector.set("Lector: conectado")
             return
         self._asegurar_puerto_sin_servicio_gatt_conflicto()
-        port = self.var_puerto_serial.get().strip()
-        port_l = port.lower()
-        if port_l.startswith("/dev/ttyusb"):
-            port = "/dev/ttyUSB" + port[len("/dev/ttyusb") :]
-        elif port_l.startswith("/dev/ttyacm"):
-            port = "/dev/ttyACM" + port[len("/dev/ttyacm") :]
+        port = self._normalizar_texto_puerto_serial(self.var_puerto_serial.get().strip())
         if not port:
             self._msg_error("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
             return
@@ -1764,13 +1866,7 @@ class AplicacionInventario(tk.Tk):
         except Exception as e:
             self._msg_error("Error", str(e))
             return
-        self._puerto_lector_activo = port
-        self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
-        self.btn_conectar_lector.config(state="disabled")
-        self.btn_continuar.config(state="normal")
-        self._actualizar_estado_lector_en_menu()
-        if self._destino_tras_conexion != "menu":
-            self._continuar_tras_conexion()
+        self._finalizar_conexion_lector_en_ui(port, baud, automatico=False)
 
     def detener_escaneo(self):
         self._cancelar_inicio_pistoleo_pendiente()

@@ -290,7 +290,7 @@ class LectorR200:
             if "0x10" in detalle or "escritura rechazada" in detalle.lower():
                 detalle = (
                     "Select/EPC no coincidió. EPC escaneado (hex): {0}. "
-                    "Activa RFID_SERIAL_DEBUG=1 y ejecuta diagnostico_escritura_r200.py"
+                    "Prueba re-escanear la etiqueta antes de escribir."
                 ).format(epc_escaneado[:32])
             raise RuntimeError(
                 "No se pudo grabar ({0}). Una etiqueta quieta sobre la antena.".format(detalle)
