@@ -1,0 +1,48 @@
+Estructura del repositorio (mapa rápido)
+
+Raíz
+  README.md           — resumen y cómo ejecutar
+  config.json         — puerto serial, catálogo, flags (escritura, rastreo sim)
+  requirements.txt    — pyserial
+  Diagramas/          — secuencias y hardware (informe / diseño)
+
+docs/                 — toda la documentación operativa (LEEME.txt índice)
+
+deploy/raspberry-pi-recortado/
+  launch-handheld.sh, .desktop — autostart GUI en la Pi
+
+firmware/arduino_r200_emulator/
+  r200_emulador.ino   — emulador del R200 por USB (pruebas sin módulo)
+
+r200 DOCUMENTACION/   — PDFs del módulo R200 (fabricante)
+
+rfid_inventory/       — código Python principal
+
+  ui/gui/
+    handheld_app.py       — aplicación pantalla (menú, inventario, rastreo, escritura, BT)
+    teclado_virtual.py    — teclado en pantalla
+    campo_autocompletado.py — edificio/sala con sugerencias
+
+  app/
+    scanner.py            — hilo de lectura continua (Escaner)
+    inventory_service.py  — inventario por ubicación
+    inventory_presenter.py
+    tracking_service.py, proximity_tracker.py
+    tag_writer_service.py
+    app_config.py         — lee config.json
+
+  catalog/
+    catalog_loader.py     — JSON ubicaciones + activos
+    epc12_codec.py        — EPC ↔ código activo
+
+  domain/
+    compare.py            — esperados vs leídos (OK / falta / nuevo)
+
+  drivers/
+    r200_driver.py        — puerto serial y comandos R200
+
+  vendor/rfid_r200/       — librería R200 (solo lo necesario para sync)
+
+  pi_ble_hid/
+    gatt_server_rfid.py, hid_keys.py, web/, systemd/, scripts/
+    LEEME.txt             — puntero a docs/

@@ -1,2 +1,2 @@
-"""GUI (Tkinter) entrypoints."""
+"""Punto de entrada de la interfaz gráfica (Tkinter)."""
 

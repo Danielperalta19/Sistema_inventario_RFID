@@ -8,9 +8,11 @@ from typing import Tuple
 
 from .constants import CMD_EXECUTION_FAILURE
 from .constants import CMD_SINGLE_POLL_INSTRUCTION
+from .constants import ERR_ACCESS_FAIL
 from .constants import ERR_COMMAND_ERROR
 from .constants import ERR_INVENTORY_FAIL
 from .constants import ERR_READ_FAIL
+from .constants import ERR_WRITE_FAIL
 from .constants import FRAME_TYPE_COMMAND
 from .constants import FRAME_TYPE_NOTIFICATION
 from .constants import FRAME_TYPE_RESPONSE
@@ -33,6 +35,26 @@ class R200Response:
     params: List[int]
 
 
+def rssi_raw_a_dbm(raw: int) -> int:
+    """Convierte el byte RSSI del protocolo R200 a dBm (como el demo del fabricante)."""
+    valor = int(raw) & 0xFF
+    return valor - 256 if valor > 127 else valor
+
+
+def crc16_gen2_epc(pc: int, epc: List[int]) -> int:
+    """CRC-16 Gen2 sobre PC + EPC (ISO 18000-6C)."""
+    payload = bytes([(pc >> 8) & 0xFF, pc & 0xFF]) + bytes(epc)
+    crc = 0xFFFF
+    for byte in payload:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x0001:
+                crc = (crc >> 1) ^ 0x8408
+            else:
+                crc >>= 1
+    return crc & 0xFFFF
+
+
 @dataclass
 class R200PoolResponse:
     rssi: int = 0
@@ -45,12 +67,23 @@ class R200PoolResponse:
             self.epc = []
 
     def parse(self, params: List[int]) -> None:
-        if len(params) < 17:
+        if len(params) < 5:
             raise ValueError("Not enough data")
-        self.rssi = params[0]
+        self.rssi = rssi_raw_a_dbm(params[0])
         self.pc = (params[1] << 8) + params[2]
-        self.epc = params[3:15]
-        self.crc = (params[15] << 8) + params[16]
+        epc_words = (self.pc >> 11) & 0x1F
+        epc_len = int(epc_words) * 2
+        if 2 <= epc_len <= 62 and len(params) >= 3 + epc_len + 2:
+            self.epc = params[3 : 3 + epc_len]
+            crc_off = 3 + epc_len
+            self.crc = (params[crc_off] << 8) + params[crc_off + 1]
+            return
+        # Respaldo: trama fija 96-bit (12 bytes EPC).
+        if len(params) >= 17:
+            self.epc = params[3:15]
+            self.crc = (params[15] << 8) + params[16]
+            return
+        raise ValueError("Not enough data")
 
 
 class R200ErrorResponse:
@@ -67,6 +100,10 @@ class R200ErrorResponse:
             self.message = "Can't execute command"
         elif self.error[0] == ERR_READ_FAIL:
             self.message = "Read failed"
+        elif self.error[0] == ERR_WRITE_FAIL:
+            self.message = "escritura rechazada (EPC bloqueado o etiqueta no programable)"
+        elif self.error[0] == ERR_ACCESS_FAIL:
+            self.message = "Access failed (contraseña o permisos)"
         else:
             self.message = f"Error: 0x{self.error[0]:02x}"
         return self.message
@@ -191,24 +228,21 @@ class CommonR200Interface:
                 item = R200PoolResponse()
                 try:
                     item.parse(resp.params)
+                except ValueError:
+                    # Trama corrupta o EPC inválido: ignorar (evita EPC fantasma en UI).
+                    continue
 
-                    # Convert EPC to hex string for comparison
-                    epc_hex = binascii.hexlify(bytes(item.epc)).decode()
-
-                    if epc_hex not in epc_ids:
-                        epc_ids.add(epc_hex)
-                        pool.append(item)
-
-                except ValueError as e:
-                    raise RuntimeError(f"Error parsing tag data: {e}")
+                epc_hex = binascii.hexlify(bytes(item.epc)).decode()
+                if epc_hex not in epc_ids:
+                    epc_ids.add(epc_hex)
+                    pool.append(item)
 
             elif resp.command == CMD_EXECUTION_FAILURE:
                 error_data = R200ErrorResponse(resp.params)
+                if error_data.error and error_data.error[0] == ERR_INVENTORY_FAIL:
+                    continue
                 error_msg = error_data.parse()
                 err = RuntimeError(f"Error reading RFID: {error_msg}")
-            else:
-                # Sets a generic undefined error for other commands
-                err = RuntimeError("Undefined error")
 
         return pool, err
 

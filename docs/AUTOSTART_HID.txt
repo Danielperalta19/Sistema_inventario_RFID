@@ -1,0 +1,48 @@
+Autostart del HID (systemd)
+
+Al encender la Pi quedan listos Bluetooth (visible / publicidad) y gatt_server_rfid.py.
+
+Archivos en rfid_inventory/pi_ble_hid/systemd/
+
+  rfid-hid-bt-up.service — discoverable + advertising al boot
+  rfid-hid-gatt.service — servidor HID
+  rfid-hid-gatt.default — plantilla para /etc/default/rfid-hid-gatt
+
+Rutas: en el repo suelen ser /home/user/... Si tu usuario es otro (pi, etc.), edita antes de copiar o edita en /etc/systemd/system/.
+
+Instalación
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  sudo cp systemd/rfid-hid-bt-up.service /etc/systemd/system/
+  sudo cp systemd/rfid-hid-gatt.service /etc/systemd/system/
+  sudo cp systemd/rfid-hid-gatt.default /etc/default/rfid-hid-gatt
+
+  sudo nano /etc/default/rfid-hid-gatt
+  # RFID_PORT=/dev/ttyUSB0
+  # RFID_BAUD=115200
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-bt-up.service rfid-hid-gatt.service
+  sudo systemctl start rfid-hid-bt-up.service rfid-hid-gatt.service
+
+Comprobar
+
+  sudo systemctl status rfid-hid-gatt.service
+  journalctl -u rfid-hid-gatt.service -f
+
+Debe verse "GATT application registered".
+
+Problemas
+
+  No dejes dos copias del script: sudo pkill -f gatt_server_rfid.py antes de reiniciar el servicio.
+
+  Prueba a mano:
+    cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+    set -a; . /etc/default/rfid-hid-gatt; set +a
+    sudo -E python3 gatt_server_rfid.py
+
+  Si tras reiniciar no hay advertising, opcional: habilitar rfid-hid-bt-up-post.service (copiar a /etc/systemd/system/, enable, start). Ver también rfid-hid-btmgmt-after-gatt.service en el repo.
+
+  Logs: journalctl -u rfid-hid-gatt.service -e --no-pager
+
+Windows en el día a día: con el servicio activo suele bastar Conectar al dispositivo ya emparejado.

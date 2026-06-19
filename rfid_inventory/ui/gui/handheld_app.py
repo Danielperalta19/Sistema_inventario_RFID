@@ -1,19 +1,55 @@
-"""Inventario RFID para pantalla pequeña (p. ej. Waveshare 480x320).
+"""Interfaz gráfica principal (Tkinter): inventario, rastreo, escritura de etiqueta y modo HID.
 
-Flujo: Inicio (conexión) -> Ubicación -> pantalla de inventario (Iniciar/Detener pistoleo) -> Resultado -> Detalle opcional.
+Pantalla de diseño: 480×320 (por ejemplo Waveshare en Raspberry Pi).
 """
 
+import os
+import shutil
+import subprocess
+import threading
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+import json
+import datetime
+import random
+import time
 
-from rfid_inventory.app import Scanner
-from rfid_inventory.app.inventory_service import InventoryService
-from rfid_inventory.drivers import R200Driver
+from rfid_inventory.app import Escaner
+from rfid_inventory.app.inventory_presenter import construir_filas_resultado
+from rfid_inventory.app.inventory_service import ServicioInventario
+from rfid_inventory.app.proximity_tracker import (
+    RastreadorProximidad,
+    barras_senal_desde_rssi,
+    texto_proximidad_operador,
+)
+from rfid_inventory.app.tag_writer_service import ServicioEscrituraEtiquetas
+from rfid_inventory.app.tracking_service import ServicioRastreo
+from rfid_inventory.app.app_config import (
+    bluetooth_hid_habilitado_resuelto,
+    cargar_configuracion_aplicacion,
+    hardware_escritura_resuelto,
+)
+from rfid_inventory.catalog.catalog_loader import (
+    aplanar_ubicaciones_a_mapa_epcs,
+    cargar_ubicaciones_anidadas_desde_json,
+    rutas_catalogo_por_defecto,
+)
+from rfid_inventory.catalog.epc12_codec import epc12_hex_a_codigo_activo
+from rfid_inventory.drivers import LectorR200
+from rfid_inventory.ui.gui.barras_senal import BarrasSenal
+from rfid_inventory.ui.gui.campo_autocompletado import CampoAutocompletado
+from rfid_inventory.ui.gui.teclado_virtual import TecladoVirtual
+from rfid_inventory.ui.ui_formatters import (
+    codigo_activo_o_guion_desde_epc,
+    estado_escritura_programada_operador,
+    mostrar_activo_desde_epc,
+    valor_etiqueta_para_operador,
+)
 
 
-def _mock_locations_nested():
-    """edificio -> sala/lab/cubiculo -> lista de EPC (hex), alineados con el emulador."""
+def _ubicaciones_ejemplo_anidadas():
+    """Fallback si no existen los JSON: edificio -> sala -> lista de EPC (hex)."""
     pairs = [
         ("Edificio Central", "Lab A-101"),
         ("Edificio Central", "Lab A-102"),
@@ -33,332 +69,1084 @@ def _mock_locations_nested():
     return out
 
 
-def _flatten_locations(nested):
-    flat = {}
-    for edif, rooms in nested.items():
-        for sala, epcs in rooms.items():
-            flat[_location_label(edif, sala)] = epcs
-    return flat
-
-
-def _location_label(edificio, sala):
+def _texto_ubicacion(edificio, sala):
     return "{0} · {1}".format(edificio, sala)
 
 
-class HandheldApp(tk.Tk):
-    _LOG_MAX_LINES = 4
+class AplicacionInventario(tk.Tk):
+    _MAX_LINEAS_LOG_ESCANEO = 3
+    _ANCHO_PANTALLA = 480
+    _ALTO_PANTALLA = 320
+    _WRAP_TEXTO = 448  # márgenes ~16 px por lado
 
     def __init__(self):
         super().__init__()
         self.title("Inventario RFID")
-        self.geometry("480x320")
-        self.minsize(480, 320)
+        self._sin_decoracion_ventana = self._sin_barra_titulo_solicitada()
+        if self._sin_decoracion_ventana:
+            try:
+                self.overrideredirect(True)
+            except tk.TclError:
+                self._sin_decoracion_ventana = False
+        self.geometry(f"{self._ANCHO_PANTALLA}x{self._ALTO_PANTALLA}")
+        self._ventana_maximizada = False
 
-        self._scan_started_ms = None
-        self._scan_timer_job = None
-        self._pistol_start_job = None
-        self._expected_set = set()
-        self._recent_log = []
-        self._tree_expected_items = {}
-        self._tree_new_items = {}
+        self._escaneo_inicio_ms = None
+        self._tarea_temporizador_escaneo = None
+        self._tarea_inicio_pistoleo = None
+        self._conjunto_epcs_esperados = set()
+        self._lineas_log_escaneo = []
+        self._arbol_escaneo_items_esperados = {}
+        self._arbol_escaneo_items_nuevos = {}
 
-        self._result_location = ""
-        self._result_rows = []
-        self._last_snap = None
-        self._filter_mode = tk.StringVar(value="todos")
+        self._ubicacion_texto_resultados = ""
+        self._filas_resultados_inventario = []
+        self._resultado_iid_a_epc = {}
+        self._ultima_muestra_escaneo = None
+        self._modo_filtro_resultados = tk.StringVar(value="todos")
 
-        self._driver = R200Driver()
-        self._scanner = Scanner(self._driver)
-        self._nested_locations = _mock_locations_nested()
-        self._locations = _flatten_locations(self._nested_locations)
-        self._inventory = InventoryService(self._locations, self._scanner)
+        self._lector = LectorR200()
+        self._escaner = Escaner(self._lector)
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        self._configuracion = cargar_configuracion_aplicacion(repo_root)
+        rutas_catalogo = rutas_catalogo_por_defecto(
+            repo_root, prefer_web_dir=self._configuracion.catalogo.preferir_directorio_web
+        )
+        self._ubicaciones_anidadas = (
+            cargar_ubicaciones_anidadas_desde_json(rutas_catalogo) or _ubicaciones_ejemplo_anidadas()
+        )
+        self._mapa_ubicacion_a_epcs = aplanar_ubicaciones_a_mapa_epcs(self._ubicaciones_anidadas)
+        self._servicio_inventario = ServicioInventario(self._mapa_ubicacion_a_epcs, self._escaner)
 
-        self._init_style()
+        self._servicio_rastreo = ServicioRastreo(self._ubicaciones_anidadas)
+        self._rastreador_proximidad = RastreadorProximidad(alpha=0.25)
+        self._servicio_escritura = ServicioEscrituraEtiquetas(
+            usar_hardware=hardware_escritura_resuelto(self._configuracion)
+        )
+        self._forzar_sim_proximidad = bool(self._configuracion.funciones.forzar_simulacion_proximidad)
+        self._bluetooth_hid_habilitado = bluetooth_hid_habilitado_resuelto(self._configuracion)
+        self._proximidad_activa = False
+        self._tarea_ui_proximidad = None
+        self._gatt_detenido_automaticamente_para_inventario = False
+        self._advertido_fallo_sudo_gatt = False
+        # Tras conectar: menu | ubicacion | rastreo | escritura
+        self._destino_tras_conexion = "menu"
+        self._puerto_lector_activo = ""
 
-        self.container = tk.Frame(self)
-        self.container.pack(fill="both", expand=True)
+        self._inicializar_estilos()
 
-        self._frame_home = None
-        self._frame_setup = None
-        self._frame_scan = None
-        self._frame_result = None
-        self._frame_detail = None
+        self.contenedor = tk.Frame(self)
+        self.contenedor.pack(fill="both", expand=True)
+        self._teclado_virtual = TecladoVirtual(self)
 
-        self._build_home()
-        self._build_setup()
-        self._build_scan()
-        self._build_result()
-        self._build_detail()
+        self._marco_menu = None
+        self._marco_inicio = None
+        self._marco_conexion = None
+        self._marco_ubicacion = None
+        self._marco_escaneo = None
+        self._marco_resultados = None
+        self._marco_detalle = None
+        self._marco_rastreo = None
+        self._marco_escritura = None
+        self._marco_hid = None
 
-        self._show_frame("home")
+        self._construir_inicio()
+        self._construir_menu()
+        self._construir_conexion()
+        self._construir_ubicacion()
+        self._construir_escaneo()
+        self._construir_resultados()
+        self._construir_detalle()
+        self._construir_rastreo()
+        self._construir_escritura()
+        self._construir_hid()
 
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self._marco_actual = "inicio"
+        self._mostrar_marco("inicio")
 
-    def _location_key(self):
-        return _location_label(self.building_var.get(), self.room_var.get())
+        self.protocol("WM_DELETE_WINDOW", self.al_cerrar_ventana)
+        self._teclado_virtual.instalar_en(self)
 
-    def _init_style(self):
+        self.bind("<Map>", self._al_mapear_ventana, add="+")
+        self.after_idle(self._maximizar_ventana)
+        self.after(150, self._maximizar_ventana)
+        if self._sin_decoracion_ventana:
+            self.after(300, self._maximizar_ventana)
+
+        if os.name == "posix":
+            if self._bluetooth_hid_habilitado:
+                self.after(400, self._arranque_priorizar_bluetooth)
+            else:
+                self.after(400, self._arranque_aislar_gatt)
+
+    def _arranque_aislar_gatt(self) -> None:
+        """Sin Bluetooth HID: detiene rfid-hid-gatt para que no compita con el serial del R200."""
+        threading.Thread(target=self._hilo_detener_gatt_para_inventario, daemon=True).start()
+
+    def _hilo_detener_gatt_para_inventario(self) -> None:
+        self._detener_servicio_gatt_si_activo()
+
+    def _habilitar_publicidad_ble_y_abrir_modo_hid(self):
+        """Activa advertising BLE (btmgmt) y abre la pantalla HID."""
+        if not self._bluetooth_hid_habilitado:
+            self._msg_info(
+                "Bluetooth",
+                "Modo teclado Bluetooth desactivado en config.json\n"
+                "(features.bluetooth_hid_enabled: false).",
+            )
+            return
+        self._mostrar_marco("modo_hid")
+        threading.Thread(target=self._hid_hilo_cerrar_serial_y_continuar, daemon=True).start()
+
+    def _hid_hilo_cerrar_serial_y_continuar(self) -> None:
+        """Cierra el lector fuera del hilo de Tk: ``close()`` del USB a veces bloquea mucho tiempo."""
+        try:
+            self._lector.cerrar()
+        except Exception:
+            pass
+        try:
+            self.after(0, self._hid_en_main_despues_cerrar_serial)
+        except Exception:
+            pass
+
+    def _hid_en_main_despues_cerrar_serial(self) -> None:
+        """Tras soltar el USB: detiene escáner/temporizador en el hilo de la UI."""
+        self._detener_actividad_lector_en_ui()
+
+        threading.Thread(
+            target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=True),
+            daemon=True,
+        ).start()
+
+    def _arranque_priorizar_bluetooth(self) -> None:
+        """Al abrir la app en la Pi: GATT activo y puerto serial libre (sin conectar el lector aún)."""
+        if not self._bluetooth_hid_habilitado:
+            self._arranque_aislar_gatt()
+            return
+        threading.Thread(
+            target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False),
+            daemon=True,
+        ).start()
+
+    def _hilo_activar_gatt_y_ble(self, mostrar_errores_ui: bool = False) -> None:
+        if not self._bluetooth_hid_habilitado:
+            self._hilo_detener_gatt_para_inventario()
+            return
+        self._intentar_reanudar_gatt_si_lo_pausamos()
+        self._asegurar_servicio_gatt_en_modo_hid()
+        if os.name != "posix":
+            return
+        errores = self._btmgmt_habilitar_adaptador_ble()
+        if mostrar_errores_ui and errores:
+            detalle = "\n\n".join(errores[:3])
+
+            def aviso(d=detalle):
+                self._msg_warning(
+                    "Bluetooth",
+                    "No pude dejar el adaptador listo para conectar.\n\n"
+                    f"{d}\n\n"
+                    "En la Pi: sudo ./scripts/reparar_bluetooth_hid.sh\n"
+                    "En Windows: Bluetooth LE Explorer > Connect (no solo Emparejar).",
+                )
+
+            try:
+                self.after(0, aviso)
+            except Exception:
+                pass
+
+    def _btmgmt_habilitar_adaptador_ble(self) -> list[str]:
+        """connectable + advertising + clase teclado. Devuelve lista de errores (vacía = OK)."""
+        errores: list[str] = []
+        btmgmt = shutil.which("btmgmt") or "/usr/bin/btmgmt"
+        for sub in ("connectable", "bondable", "advertising"):
+            cmd = ["sudo", "-n", btmgmt, "-i", "hci0", sub, "on"]
+            try:
+                p = subprocess.run(cmd, text=True, capture_output=True, timeout=25)
+            except Exception as e:
+                errores.append(f"{' '.join(cmd)}: {e}")
+                continue
+            if p.returncode != 0:
+                errores.append(f"{' '.join(cmd)} exit={p.returncode}\n{(p.stderr or p.stdout or '').strip()}")
+        hci = shutil.which("hciconfig")
+        if hci:
+            try:
+                subprocess.run(
+                    ["sudo", "-n", hci, "hci0", "class", "0x000540"],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+            except Exception:
+                pass
+        return errores
+
+    def _detener_actividad_lector_en_ui(self) -> None:
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        try:
+            self._escaner.reanudar()
+            self._escaner.detener()
+        except Exception:
+            pass
+        try:
+            self._proximidad_detener()
+        except Exception:
+            pass
+
+    def _volver_al_menu_principal(self) -> None:
+        """Menú principal (mantiene el lector conectado para cambiar de módulo sin reconectar)."""
+        self._detener_actividad_lector_en_ui()
+        self._mostrar_marco("menu")
+        if os.name != "posix":
+            return
+
+        def hilo():
+            if self._bluetooth_hid_habilitado:
+                try:
+                    if self._lector.connected:
+                        self._lector.cerrar()
+                        self._puerto_lector_activo = ""
+                except Exception:
+                    pass
+                self._hilo_activar_gatt_y_ble(mostrar_errores_ui=False)
+            else:
+                self._hilo_detener_gatt_para_inventario()
+
+        threading.Thread(target=hilo, daemon=True).start()
+
+    def _sugerir_puerto_serial_pi(self) -> str:
+        """Devuelve un puerto serial estable para Raspberry Pi (si existe).
+
+        Preferimos `/dev/serial/by-id/*` para evitar que cambie ttyUSB0/ttyUSB1.
+        """
+        if os.name != "posix":
+            return ""
+        try:
+            by_id = "/dev/serial/by-id"
+            if os.path.isdir(by_id):
+                entries = sorted(os.listdir(by_id))
+                for name in entries:
+                    p = os.path.join(by_id, name)
+                    if os.path.islink(p) or os.path.exists(p):
+                        return p
+            # Respaldo: /dev/ttyUSB* y luego /dev/ttyACM*
+            for i in range(0, 6):
+                p = f"/dev/ttyUSB{i}"
+                if os.path.exists(p):
+                    return p
+            for i in range(0, 6):
+                p = f"/dev/ttyACM{i}"
+                if os.path.exists(p):
+                    return p
+        except Exception:
+            pass
+        return ""
+
+    def _normalizar_texto_puerto_serial(self, puerto: str) -> str:
+        p = (puerto or "").strip()
+        if not p:
+            return ""
+        pl = p.lower()
+        if pl.startswith("/dev/ttyusb"):
+            return "/dev/ttyUSB" + p[len("/dev/ttyusb") :]
+        if pl.startswith("/dev/ttyacm"):
+            return "/dev/ttyACM" + p[len("/dev/ttyacm") :]
+        return p
+
+    def _rfid_port_en_default_hid_gatt(self) -> str | None:
+        ruta = "/etc/default/rfid-hid-gatt"
+        if not os.path.isfile(ruta):
+            return None
+        try:
+            with open(ruta, "r", encoding="utf-8", errors="replace") as f:
+                for raw in f:
+                    line = raw.split("#", 1)[0].strip()
+                    if line.upper().startswith("RFID_PORT="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        return val if val else None
+        except OSError:
+            return None
+        return None
+
+    def _servicio_rfid_hid_gatt_activo(self) -> bool:
+        if os.name != "posix":
+            return False
+        systemctl = shutil.which("systemctl")
+        if not systemctl:
+            return False
+        try:
+            r = subprocess.run(
+                [systemctl, "is-active", "rfid-hid-gatt.service"],
+                capture_output=True,
+                text=True,
+                timeout=4,
+            )
+            return r.returncode == 0 and (r.stdout or "").strip() == "active"
+        except Exception:
+            return False
+
+    def _mismo_dispositivo_serial(self, a: str, b: str) -> bool:
+        if not a or not b:
+            return False
+        ca = self._normalizar_texto_puerto_serial(a)
+        cb = self._normalizar_texto_puerto_serial(b)
+        if ca == cb:
+            return True
+        try:
+            return os.path.exists(ca) and os.path.exists(cb) and os.path.samefile(ca, cb)
+        except OSError:
+            try:
+                return os.path.realpath(ca) == os.path.realpath(cb)
+            except OSError:
+                return False
+
+    def _hay_conflicto_hid_gatt_puerto(self) -> bool:
+        """True si rfid-hid-gatt está activo y RFID_PORT apunta al mismo dispositivo que la GUI."""
+        if not self._servicio_rfid_hid_gatt_activo():
+            return False
+        puerto_gui = self._normalizar_texto_puerto_serial(self.var_puerto_serial.get())
+        def_port = self._rfid_port_en_default_hid_gatt()
+        if not def_port:
+            return False
+        return self._mismo_dispositivo_serial(puerto_gui, def_port)
+
+    def _sudo_systemctl_gatt(self, accion: str) -> bool:
+        """accion: 'stop' o 'start'. Requiere sudoers NOPASSWD para systemctl."""
+        if os.name != "posix":
+            return False
+        systemctl = shutil.which("systemctl") or "/usr/bin/systemctl"
+        try:
+            r = subprocess.run(
+                ["sudo", "-n", systemctl, accion, "rfid-hid-gatt.service"],
+                capture_output=True,
+                text=True,
+                timeout=22,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _detener_servicio_gatt_si_activo(self) -> None:
+        if self._servicio_rfid_hid_gatt_activo():
+            if self._sudo_systemctl_gatt("stop"):
+                self._gatt_detenido_automaticamente_para_inventario = True
+
+    def _asegurar_puerto_sin_servicio_gatt_conflicto(self) -> None:
+        """Detiene rfid-hid-gatt sin pedir contraseña si está configurado sudo -n (instalación típica)."""
+        if not self._bluetooth_hid_habilitado:
+            self._detener_servicio_gatt_si_activo()
+            return
+        if not self._hay_conflicto_hid_gatt_puerto():
+            return
+        if self._sudo_systemctl_gatt("stop"):
+            self._gatt_detenido_automaticamente_para_inventario = True
+            time.sleep(0.25)
+            return
+        if self._advertido_fallo_sudo_gatt:
+            return
+        self._advertido_fallo_sudo_gatt = True
+        self._msg_warning(
+            "Puerto serial compartido",
+            "El servicio «rfid-hid-gatt» usa el mismo puerto que el inventario.\n\n"
+            "No pude detenerlo solo (hace falta permitir systemctl sin contraseña).\n"
+            "En la Pi, con visudo, agrega una línea como (cambia `user` por tu usuario):\n\n"
+            "  user ALL=(root) NOPASSWD: /usr/bin/systemctl stop rfid-hid-gatt.service, "
+            "/usr/bin/systemctl start rfid-hid-gatt.service\n\n"
+            "O detén el servicio a mano antes de pistoleo:\n"
+            "  sudo systemctl stop rfid-hid-gatt",
+        )
+
+    def _intentar_reanudar_gatt_si_lo_pausamos(self) -> None:
+        """Al volver al modo Bluetooth, reactiva el servicio si esta app lo había parado."""
+        if not self._bluetooth_hid_habilitado:
+            return
+        if not self._gatt_detenido_automaticamente_para_inventario:
+            return
+        if self._sudo_systemctl_gatt("start"):
+            self._gatt_detenido_automaticamente_para_inventario = False
+
+    def _asegurar_servicio_gatt_en_modo_hid(self) -> None:
+        """Arranca rfid-hid-gatt si está instalado pero inactivo (p. ej. tras reinicio o fallo)."""
+        if os.name != "posix":
+            return
+        if self._servicio_rfid_hid_gatt_activo():
+            return
+        if not os.path.isfile("/etc/systemd/system/rfid-hid-gatt.service"):
+            return
+        self._sudo_systemctl_gatt("start")
+
+    def _clave_ubicacion_actual(self):
+        return _texto_ubicacion(self.var_edificio.get(), self.var_sala.get())
+
+    @staticmethod
+    def _sin_barra_titulo_solicitada() -> bool:
+        """Quita minimizar/maximizar/cerrar (opt-in: export RFID_SIN_BARRA_TITULO=1 en la Pi)."""
+        raw = os.environ.get("RFID_SIN_BARRA_TITULO", "").strip().lower()
+        if raw in ("0", "false", "no", "off"):
+            return False
+        if raw in ("1", "true", "yes", "si", "sí", "on"):
+            return True
+        return False
+
+    def _altura_panel_lxde(self) -> int:
+        """Altura del panel superior del escritorio (lxpanel); la ventana va debajo."""
+        raw = os.environ.get("RFID_WM_MARGIN_TOP", "").strip()
+        if raw:
+            try:
+                return max(0, int(raw))
+            except ValueError:
+                pass
+        try:
+            if str(self.state()) not in ("withdrawn", "iconic"):
+                ry = int(self.winfo_rooty())
+                if ry > 0:
+                    return ry
+        except tk.TclError:
+            pass
+        return 28 if os.name == "posix" else 0
+
+    def _ocupar_pantalla_completa(self) -> None:
+        sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
+        sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
+        self.geometry("{0}x{1}+0+0".format(sw, sh))
+
+    def _ventana_sin_decoracion_a_pantalla(self) -> None:
+        """Sin barra de título: llena el ancho y el alto bajo lxpanel (taskbar intacto)."""
+        self.update_idletasks()
+        sw = int(self.winfo_screenwidth() or self._ANCHO_PANTALLA)
+        sh = int(self.winfo_screenheight() or self._ALTO_PANTALLA)
+        top = self._altura_panel_lxde()
+        alto = max(200, sh - top)
+        self.geometry("{0}x{1}+0+{2}".format(sw, alto, top))
+
+    def _restaurar_decoracion_ventana(self) -> bool:
+        if not self._sin_decoracion_ventana:
+            return False
+        try:
+            self.overrideredirect(False)
+            self.update_idletasks()
+            return True
+        except tk.TclError:
+            return False
+
+    def _reaplicar_sin_decoracion(self, habia_decoracion: bool) -> None:
+        if not habia_decoracion:
+            return
+        try:
+            self.overrideredirect(True)
+        except tk.TclError:
+            return
+        self._ventana_sin_decoracion_a_pantalla()
+        self.lift()
+
+    def _caja_dialogo(self, funcion, titulo: str, mensaje: str, **opciones):
+        opciones.setdefault("parent", self)
+        if not self._sin_decoracion_ventana:
+            return funcion(titulo, mensaje, **opciones)
+        habia = self._restaurar_decoracion_ventana()
+        try:
+            self.lift()
+            self.update_idletasks()
+            return funcion(titulo, mensaje, **opciones)
+        finally:
+            self._reaplicar_sin_decoracion(habia)
+
+    def _msg_info(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showinfo, titulo, mensaje, **opciones)
+
+    def _msg_warning(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showwarning, titulo, mensaje, **opciones)
+
+    def _msg_error(self, titulo: str, mensaje: str, **opciones):
+        return self._caja_dialogo(messagebox.showerror, titulo, mensaje, **opciones)
+
+    def _maximizar_ventana(self, _event=None) -> None:
+        """Maximizada con barra del WM, o sin decoración solo en Pi (lxpanel visible)."""
+        self.update_idletasks()
+        if self._sin_decoracion_ventana:
+            self._ventana_sin_decoracion_a_pantalla()
+        else:
+            maximizado = False
+            try:
+                self.state("zoomed")
+                maximizado = str(self.state()) == "zoomed"
+            except tk.TclError:
+                pass
+            if not maximizado:
+                try:
+                    self.attributes("-zoomed", True)
+                    maximizado = bool(self.attributes("-zoomed"))
+                except tk.TclError:
+                    pass
+            if not maximizado:
+                self._ocupar_pantalla_completa()
+        self._ventana_maximizada = True
+        if getattr(self, "_teclado_virtual", None) is not None and self._teclado_virtual.visible():
+            self._teclado_virtual._reposicionar()
+    def _al_mapear_ventana(self, _event=None) -> None:
+        if not self._ventana_maximizada:
+            self._maximizar_ventana()
+
+    def _inicializar_estilos(self):
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("Treeview", rowheight=20)
-        style.configure("Treeview.Heading", font=("", 9, "bold"))
-        style.configure("Handheld.TButton", font=("", 11))
-        style.configure("HandheldBig.TButton", font=("", 13))
+        # Ajuste compacto para 480×320 (Waveshare): balance legibilidad/espacio.
+        style.configure("Treeview", rowheight=14, font=("", 8))
+        style.configure("Treeview.Heading", font=("", 8, "bold"))
+        style.configure("Handheld.TButton", font=("", 9))
+        style.configure("HandheldBig.TButton", font=("", 10))
 
-    def _show_frame(self, name):
-        for w in self.container.winfo_children():
+    @staticmethod
+    def _texto_corto(texto: str, max_len: int = 56) -> str:
+        t = (texto or "").strip()
+        if len(t) <= max_len:
+            return t
+        return t[: max_len - 1] + "…"
+
+    def _grid_cabecera_pantalla(self, marco: tk.Frame, titulo: str, fila: int = 0) -> None:
+        marco.columnconfigure(1, weight=1)
+        ttk.Button(
+            marco,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._volver_al_menu_principal,
+        ).grid(row=fila, column=0, sticky="w", padx=(6, 4), pady=2)
+        tk.Label(marco, text=titulo, font=("", 9, "bold")).grid(row=fila, column=1, sticky="w", pady=2)
+
+    def _actualizar_indicador_proximidad(self, rssi: int | float | None, *, sin_senal: bool = False) -> None:
+        if sin_senal:
+            self._barras_proximidad.establecer(0)
+            self.var_proximidad_distancia.set("Sin señal — acerca la pistola al activo")
+            return
+        barras = barras_senal_desde_rssi(rssi)
+        self._barras_proximidad.establecer(barras)
+        self.var_proximidad_distancia.set(
+            self._texto_corto(texto_proximidad_operador(rssi), 64)
+        )
+
+    def _reiniciar_pantalla_rastreo(self) -> None:
+        self._proximidad_detener()
+        self._rastreador_proximidad.reiniciar("")
+        if hasattr(self, "var_rastreo_busqueda"):
+            self.var_rastreo_busqueda.set("")
+            self.var_rastreo_linea.set("Activo: —")
+            self.var_rastreo_ubicacion.set("Ubicación esperada: —")
+            self._barras_proximidad.establecer(0)
+            self.var_proximidad_distancia.set("Busca el activo y pulsa Iniciar para acercarte")
+
+    def _reiniciar_pantalla_escritura(self) -> None:
+        self._epc_memoria_escritura_actual = ""
+        self._epc_memoria_escritura_nuevo = ""
+        self._escritura_codigo_al_escanear = ""
+        self._escritura_pc_etiqueta = None
+        if hasattr(self, "var_escritura_etiqueta_leida"):
+            self.var_escritura_etiqueta_leida.set("Etiqueta escaneada: —")
+            self.var_escritura_codigo_entrada.set("")
+            self.var_escritura_estado.set("Escanea una etiqueta o escribe el código.")
+
+    def _mostrar_marco(self, nombre_marco):
+        anterior = getattr(self, "_marco_actual", None)
+        if anterior == "rastreo" and nombre_marco != "rastreo":
+            self._reiniciar_pantalla_rastreo()
+        elif anterior == "escritura" and nombre_marco != "escritura":
+            self._reiniciar_pantalla_escritura()
+
+        self._teclado_virtual.ocultar(rapido=True)
+        for w in self.contenedor.winfo_children():
             w.pack_forget()
-        if name == "home":
-            self._frame_home.pack(fill="both", expand=True)
-        elif name == "setup":
-            self._frame_setup.pack(fill="both", expand=True)
-        elif name == "scan":
-            self._frame_scan.pack(fill="both", expand=True)
-        elif name == "result":
-            self._frame_result.pack(fill="both", expand=True)
-        elif name == "detail":
-            self._frame_detail.pack(fill="both", expand=True)
+        if nombre_marco == "inicio":
+            self._marco_inicio.pack(fill="both", expand=True)
+        elif nombre_marco == "menu":
+            self._actualizar_estado_lector_en_menu()
+            self._marco_menu.pack(fill="both", expand=True)
+        elif nombre_marco == "conexion":
+            self._marco_conexion.pack(fill="both", expand=True)
+        elif nombre_marco == "ubicacion":
+            self._reiniciar_formulario_ubicacion()
+            self._marco_ubicacion.pack(fill="both", expand=True)
+        elif nombre_marco == "escaneo":
+            self._marco_escaneo.pack(fill="both", expand=True)
+        elif nombre_marco == "resultados":
+            self._marco_resultados.pack(fill="both", expand=True)
+        elif nombre_marco == "detalle":
+            self._marco_detalle.pack(fill="both", expand=True)
+        elif nombre_marco == "rastreo":
+            self._reiniciar_pantalla_rastreo()
+            self._marco_rastreo.pack(fill="both", expand=True)
+        elif nombre_marco == "escritura":
+            self._reiniciar_pantalla_escritura()
+            self._marco_escritura.pack(fill="both", expand=True)
+        elif nombre_marco == "modo_hid":
+            self._marco_hid.pack(fill="both", expand=True)
 
-    def _build_home(self):
-        self._frame_home = tk.Frame(self.container)
+        self._marco_actual = nombre_marco
+
+    def _construir_inicio(self):
+        self._marco_inicio = tk.Frame(self.contenedor)
 
         tk.Label(
-            self._frame_home,
+            self._marco_inicio,
             text="Inventario RFID",
-            font=("", 17, "bold"),
-        ).pack(pady=(16, 6))
+            font=("", 12, "bold"),
+        ).pack(pady=(20, 4))
 
         tk.Label(
-            self._frame_home,
-            text="Conecta el lector para continuar",
-            font=("", 10),
-            wraplength=440,
-            justify="center",
-        ).pack(pady=(0, 12))
+            self._marco_inicio,
+            text="480×320",
+            font=("", 8),
+            fg="#555",
+        ).pack(pady=(0, 10))
 
-        row = tk.Frame(self._frame_home)
-        row.pack(fill="x", padx=14, pady=4)
+        ttk.Button(
+            self._marco_inicio,
+            text="Iniciar",
+            style="HandheldBig.TButton",
+            command=lambda: self._mostrar_marco("menu"),
+        ).pack(fill="x", padx=24, ipady=4)
+
+    def _construir_menu(self):
+        self._marco_menu = tk.Frame(self.contenedor)
+
+        tk.Label(
+            self._marco_menu,
+            text="Inventario RFID",
+            font=("", 11, "bold"),
+        ).pack(pady=(4, 2))
+        tk.Label(
+            self._marco_menu,
+            text="Elige una opción",
+            font=("", 8),
+            fg="#555",
+        ).pack(pady=(0, 2))
+        self.var_menu_estado_lector = tk.StringVar(value="Lector: desconectado")
+        tk.Label(
+            self._marco_menu,
+            textvariable=self.var_menu_estado_lector,
+            font=("", 8),
+            fg="#444",
+            wraplength=self._WRAP_TEXTO,
+            justify="center",
+        ).pack(pady=(0, 4))
+
+        def boton_grande(parent, text, command):
+            b = ttk.Button(
+                parent,
+                text=text,
+                style="HandheldBig.TButton",
+                command=command,
+            )
+            b.pack(fill="x", padx=10, pady=2, ipady=3)
+            return b
+
+        boton_grande(
+            self._marco_menu,
+            "Conectar lector",
+            lambda: self._abrir_pantalla_conexion("menu"),
+        )
+        boton_grande(
+            self._marco_menu,
+            "Inventario en ubicación",
+            self._entrar_inventario_ubicacion,
+        )
+        boton_grande(
+            self._marco_menu,
+            "Rastrear activo",
+            self._entrar_rastreo,
+        )
+        boton_grande(
+            self._marco_menu,
+            "Escribir etiqueta",
+            self._entrar_escritura,
+        )
+        if self._bluetooth_hid_habilitado:
+            boton_grande(
+                self._marco_menu,
+                "Modo Lector Bluetooth",
+                self._habilitar_publicidad_ble_y_abrir_modo_hid,
+            )
+
+    def _construir_conexion(self):
+        """Lector serial: pantalla compartida (menú, inventario, rastreo, escritura)."""
+        self._marco_conexion = tk.Frame(self.contenedor)
+
+        ttk.Button(
+            self._marco_conexion,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._volver_al_menu_principal,
+        ).pack(anchor="w", padx=8, pady=(4, 0))
+
+        self._lbl_conexion_titulo = tk.Label(
+            self._marco_conexion,
+            text="Conectar lector",
+            font=("", 11, "bold"),
+        )
+        self._lbl_conexion_titulo.pack(pady=(2, 2))
+
+        tk.Label(
+            self._marco_conexion,
+            text="Conecta el lector RFID al puerto",
+            font=("", 8),
+            wraplength=self._WRAP_TEXTO,
+            justify="center",
+        ).pack(pady=(0, 4))
+
+        row = tk.Frame(self._marco_conexion)
+        row.pack(fill="x", padx=12, pady=3)
 
         tk.Label(row, text="Puerto:", font=("", 10)).pack(side="left")
-        self.port_var = tk.StringVar(value="COM5")
-        tk.Entry(row, textvariable=self.port_var, width=14, font=("", 10)).pack(side="left", padx=(4, 10))
-
-        tk.Label(row, text="Baud:", font=("", 10)).pack(side="left")
-        self.baud_var = tk.StringVar(value="115200")
-        tk.Entry(row, textvariable=self.baud_var, width=7, font=("", 10)).pack(side="left", padx=(4, 10))
-
-        self.btn_connect = ttk.Button(row, text="Conectar", command=self.connect, style="Handheld.TButton")
-        self.btn_connect.pack(side="left", padx=6)
-
-        self.home_status_var = tk.StringVar(value="Lector: desconectado")
-        tk.Label(self._frame_home, textvariable=self.home_status_var, font=("", 9), wraplength=440, justify="center").pack(
-            fill="x", padx=12, pady=(8, 12)
+        # Default: si estamos en Pi, sugiere /dev/serial/by-id; si no, COM5.
+        default_port = (
+            self._sugerir_puerto_serial_pi()
+            if os.name == "posix"
+            else self._configuracion.serie.puerto_defecto_windows
         )
+        if os.name == "posix" and not default_port:
+            default_port = self._configuracion.serie.puerto_defecto_pi_respaldo
+        self.var_puerto_serial = tk.StringVar(value=default_port or ("COM5" if os.name != "posix" else "/dev/ttyUSB0"))
+        tk.Entry(row, textvariable=self.var_puerto_serial, width=20, font=("", 10)).pack(side="left", padx=(4, 6))
 
-        self.btn_continue = ttk.Button(
-            self._frame_home,
-            text="Continuar",
+        def poner_puerto_windows():
+            self.var_puerto_serial.set("COM5")
+
+        def poner_puerto_pi():
+            p = self._sugerir_puerto_serial_pi()
+            if p:
+                self.var_puerto_serial.set(p)
+            else:
+                self.var_puerto_serial.set(self._configuracion.serie.puerto_defecto_pi_respaldo)
+
+        ttk.Button(row, text="Windows", style="Handheld.TButton", command=poner_puerto_windows).pack(side="left", padx=(0, 4))
+        ttk.Button(row, text="Raspberry Pi", style="Handheld.TButton", command=poner_puerto_pi).pack(side="left", padx=(0, 0))
+
+        # Segunda fila: baud + conectar (evita overflow horizontal en 480×320)
+        row2 = tk.Frame(self._marco_conexion)
+        row2.pack(fill="x", padx=12, pady=(0, 3))
+
+        tk.Label(row2, text="Baud:", font=("", 10)).pack(side="left")
+        self.var_baudios = tk.StringVar(value=str(self._configuracion.serie.baudios))
+        tk.Entry(row2, textvariable=self.var_baudios, width=8, font=("", 10)).pack(side="left", padx=(4, 8))
+
+        self.btn_conectar_lector = ttk.Button(row2, text="Conectar", command=self.conectar_lector, style="HandheldBig.TButton")
+        self.btn_conectar_lector.pack(side="left", fill="x", expand=True, padx=(0, 0), ipady=2)
+
+        self.var_estado_lector = tk.StringVar(value="Lector: desconectado")
+        tk.Label(
+            self._marco_conexion, textvariable=self.var_estado_lector, font=("", 8), wraplength=self._WRAP_TEXTO, justify="center"
+        ).pack(fill="x", padx=10, pady=(4, 4))
+
+        self.btn_continuar = ttk.Button(
+            self._marco_conexion,
+            text="Volver al menú",
             style="HandheldBig.TButton",
-            command=lambda: self._show_frame("setup"),
+            command=self._continuar_tras_conexion,
             state="disabled",
         )
-        self.btn_continue.pack(pady=8, ipadx=20, ipady=8)
+        self.btn_continuar.pack(pady=4, ipadx=12, ipady=4)
 
-    def _build_setup(self):
-        self._frame_setup = tk.Frame(self.container)
+    def _textos_pantalla_conexion(self, destino: str) -> tuple[str, str]:
+        titulos = {
+            "menu": "Conectar lector",
+            "ubicacion": "Inventario en ubicación",
+            "rastreo": "Conectar lector (rastreo)",
+            "escritura": "Conectar lector (escritura)",
+        }
+        continuar = {
+            "menu": "Volver al menú",
+            "ubicacion": "Continuar (ubicación)",
+            "rastreo": "Continuar a rastreo",
+            "escritura": "Continuar a escritura",
+        }
+        d = destino if destino in titulos else "menu"
+        return titulos[d], continuar[d]
 
-        tk.Label(self._frame_setup, text="Ubicación del inventario", font=("", 12, "bold")).pack(
-            anchor="w", padx=12, pady=(12, 8)
+    def _actualizar_estado_lector_en_menu(self) -> None:
+        if not hasattr(self, "var_menu_estado_lector"):
+            return
+        if self._lector.connected:
+            puerto = (self._puerto_lector_activo or "").strip()
+            if puerto:
+                self.var_menu_estado_lector.set("Lector conectado ({0})".format(puerto))
+            else:
+                self.var_menu_estado_lector.set("Lector: conectado")
+        else:
+            self.var_menu_estado_lector.set("Lector: desconectado — pulsa «Conectar lector» una vez")
+
+    def _ir_a_modulo_con_lector(self, marco_destino: str, preparar=None) -> None:
+        """Abre un módulo; si el lector ya está conectado no vuelve a pedir conexión."""
+        if callable(preparar):
+            preparar()
+        if self._lector.connected:
+            self._mostrar_marco(marco_destino)
+        else:
+            self._abrir_pantalla_conexion(marco_destino)
+
+    def _abrir_pantalla_conexion(self, destino: str = "menu") -> None:
+        self._destino_tras_conexion = destino
+        if self._lector.connected:
+            self._continuar_tras_conexion()
+            return
+        titulo, texto_btn = self._textos_pantalla_conexion(destino)
+        self._lbl_conexion_titulo.config(text=titulo)
+        self.btn_continuar.config(text=texto_btn)
+        self.var_estado_lector.set("Lector: desconectado")
+        self.btn_conectar_lector.config(state="normal")
+        self.btn_continuar.config(state="disabled")
+        self._mostrar_marco("conexion")
+
+    def _continuar_tras_conexion(self) -> None:
+        if not self._lector.connected:
+            self._msg_warning("Lector", "Conecta el lector antes de continuar.")
+            return
+        destino = self._destino_tras_conexion
+        if destino == "ubicacion":
+            self._mostrar_marco("ubicacion")
+        elif destino == "rastreo":
+            self._mostrar_marco("rastreo")
+        elif destino == "escritura":
+            self._mostrar_marco("escritura")
+        else:
+            self._mostrar_marco("menu")
+
+    def _entrar_inventario_ubicacion(self):
+        """Inventario por ubicación (lector conectado una vez para toda la sesión)."""
+        self._ir_a_modulo_con_lector("ubicacion")
+
+    def _construir_ubicacion(self):
+        self._marco_ubicacion = tk.Frame(self.contenedor)
+
+        tk.Label(self._marco_ubicacion, text="Ubicación", font=("", 10, "bold")).pack(
+            anchor="w", padx=10, pady=(6, 4)
         )
 
-        row_b = tk.Frame(self._frame_setup)
-        row_b.pack(fill="x", padx=12, pady=4)
-        tk.Label(row_b, text="Edificio:", font=("", 10)).pack(anchor="w")
-        buildings = sorted(list(self._nested_locations.keys()))
-        self.building_var = tk.StringVar(value=buildings[0])
-        self.building_combo = ttk.Combobox(
+        tk.Label(
+            self._marco_ubicacion,
+            text="Escribe y elige de la lista.",
+            font=("", 7),
+            fg="#555",
+            wraplength=self._WRAP_TEXTO,
+        ).pack(anchor="w", padx=10, pady=(0, 2))
+
+        row_b = tk.Frame(self._marco_ubicacion)
+        row_b.pack(fill="x", padx=10, pady=2)
+        tk.Label(row_b, text="Edificio:", font=("", 9)).pack(anchor="w")
+        buildings = sorted(list(self._ubicaciones_anidadas.keys()))
+        self.var_edificio = tk.StringVar(value="")
+        self.campo_edificio = CampoAutocompletado(
             row_b,
-            textvariable=self.building_var,
-            values=buildings,
-            state="readonly",
-            width=32,
-            font=("", 10),
+            textvariable=self.var_edificio,
+            opciones=buildings,
+            al_cambiar=self._al_texto_edificio_cambio,
+            font=("", 9),
+            max_visible=4,
         )
-        self.building_combo.pack(fill="x", pady=(2, 0))
+        self.campo_edificio.pack(fill="x", pady=(1, 0))
 
-        row_r = tk.Frame(self._frame_setup)
-        row_r.pack(fill="x", padx=12, pady=8)
-        tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 10)).pack(anchor="w")
-        self.room_var = tk.StringVar()
-        first_rooms = sorted(list(self._nested_locations[buildings[0]].keys()))
-        self.room_var.set(first_rooms[0])
-        self.room_combo = ttk.Combobox(
+        row_r = tk.Frame(self._marco_ubicacion)
+        row_r.pack(fill="x", padx=10, pady=4)
+        tk.Label(row_r, text="Cubículo / lab / sala:", font=("", 9)).pack(anchor="w")
+        self.var_sala = tk.StringVar(value="")
+        self.campo_sala = CampoAutocompletado(
             row_r,
-            textvariable=self.room_var,
-            values=first_rooms,
-            state="readonly",
-            width=32,
-            font=("", 10),
+            textvariable=self.var_sala,
+            opciones=[],
+            al_cambiar=self._actualizar_pista_ubicacion,
+            font=("", 9),
+            max_visible=4,
         )
-        self.room_combo.pack(fill="x", pady=(2, 0))
+        self.campo_sala.pack(fill="x", pady=(1, 0))
+        self.campo_sala.habilitar(False)
 
-        self.building_combo.bind("<<ComboboxSelected>>", self._on_building_selected)
-        self.room_combo.bind("<<ComboboxSelected>>", lambda _e: self._refresh_setup_hint())
+        self._edificio_ubicacion_activo = None
+        self.var_edificio.trace_add("write", self._al_texto_edificio_cambio)
 
-        self.setup_hint_var = tk.StringVar(value="")
-        tk.Label(self._frame_setup, textvariable=self.setup_hint_var, font=("", 9), fg="#444", wraplength=440).pack(
-            fill="x", padx=12, pady=(4, 8)
-        )
-        self._refresh_setup_hint()
+        self.var_pista_ubicacion = tk.StringVar(value="")
+        tk.Label(
+            self._marco_ubicacion,
+            textvariable=self.var_pista_ubicacion,
+            font=("", 7),
+            fg="#444",
+            wraplength=self._WRAP_TEXTO,
+        ).pack(fill="x", padx=10, pady=(2, 4))
+        self._actualizar_pista_ubicacion()
 
-        row_btns = tk.Frame(self._frame_setup)
-        row_btns.pack(fill="x", side="bottom", pady=12)
+        row_btns = tk.Frame(self._marco_ubicacion)
+        row_btns.pack(fill="x", side="bottom", pady=6)
 
         ttk.Button(
             row_btns,
             text="Atrás",
             style="Handheld.TButton",
-            command=lambda: self._show_frame("home"),
+            command=self._volver_al_menu_principal,
         ).pack(side="left", padx=8)
 
-        self.btn_to_scan = ttk.Button(
+        self.btn_ir_escaneo = ttk.Button(
             row_btns,
             text="Siguiente",
             style="HandheldBig.TButton",
-            command=self.go_to_scan_screen,
+            command=self.ir_a_pantalla_escaneo,
         )
-        self.btn_to_scan.pack(side="right", padx=8, ipadx=8, ipady=4)
+        self.btn_ir_escaneo.pack(side="right", padx=8, ipadx=8, ipady=4)
 
-    def _refresh_setup_hint(self):
-        self.setup_hint_var.set("Selección: {0}".format(self._location_key()))
+    def _reiniciar_formulario_ubicacion(self) -> None:
+        """Vacía edificio/sala cada vez que se abre la pantalla de ubicación."""
+        edificios = sorted(list(self._ubicaciones_anidadas.keys()))
+        self.campo_edificio.reiniciar()
+        self.campo_edificio.actualizar_opciones(edificios)
+        self.campo_sala.reiniciar()
+        self.campo_sala.actualizar_opciones([])
+        self.campo_sala.habilitar(False)
+        self._edificio_ubicacion_activo = None
+        self._actualizar_pista_ubicacion()
 
-    def _on_building_selected(self, event=None):
-        ed = self.building_var.get()
-        rooms = sorted(list(self._nested_locations.get(ed, {}).keys()))
-        self.room_combo["values"] = rooms
-        if rooms:
-            self.room_var.set(rooms[0])
-        self._refresh_setup_hint()
+    def _al_texto_edificio_cambio(self, *_args) -> None:
+        ed = self.campo_edificio.valor_valido()
+        if ed:
+            if ed != self._edificio_ubicacion_activo:
+                self._edificio_ubicacion_activo = ed
+                self.campo_sala.reiniciar()
+            rooms = sorted(list(self._ubicaciones_anidadas.get(ed, {}).keys()))
+            self.campo_sala.habilitar(True)
+            self.campo_sala.actualizar_opciones(rooms)
+        else:
+            self._edificio_ubicacion_activo = None
+            self.campo_sala.habilitar(False)
+            self.campo_sala.actualizar_opciones([])
+        self._actualizar_pista_ubicacion()
 
-    def _build_scan(self):
-        self._frame_scan = tk.Frame(self.container)
+    def _actualizar_pista_ubicacion(self):
+        ed = (self.var_edificio.get() or "").strip()
+        sala = (self.var_sala.get() or "").strip()
+        ed_ok = self.campo_edificio.valor_valido()
+        sala_ok = self.campo_sala.valor_valido() if ed_ok else None
+        if not ed:
+            self.var_pista_ubicacion.set("Escribe o elige un edificio de la lista.")
+        elif not ed_ok:
+            self.var_pista_ubicacion.set("Elige un edificio de la lista (coincidencia exacta).")
+        elif not sala:
+            self.var_pista_ubicacion.set("Elige cubículo / lab / sala de la lista.")
+        elif not sala_ok:
+            self.var_pista_ubicacion.set("Elige una sala de la lista (coincidencia exacta).")
+        else:
+            self.var_pista_ubicacion.set("Selección: {0}".format(self._clave_ubicacion_actual()))
 
-        top = tk.Frame(self._frame_scan)
-        top.pack(fill="x", padx=10, pady=(6, 2))
+    def _construir_escaneo(self):
+        self._marco_escaneo = tk.Frame(self.contenedor)
 
-        self.scan_line_location = tk.StringVar(value="Ubicación: —")
-        self.scan_line_time = tk.StringVar(value="Tiempo: 0.0 s")
-        self.scan_line_counts = tk.StringVar(value="Esperados: 0 | Leídos únicos: 0")
+        top = tk.Frame(self._marco_escaneo)
+        top.pack(fill="x", padx=10, pady=(3, 1))
 
-        tk.Label(top, textvariable=self.scan_line_location, font=("", 9), anchor="w").pack(fill="x")
-        tk.Label(top, textvariable=self.scan_line_time, font=("", 9), anchor="w").pack(fill="x")
-        tk.Label(top, textvariable=self.scan_line_counts, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(
+            top,
+            text="Inicia el pistoleo cuando quieras",
+            font=("", 8, "bold"),
+            fg="#2E7D32",
+        ).pack(anchor="w", fill="x")
 
-        mid = tk.Frame(self._frame_scan)
-        mid.pack(fill="both", expand=True, padx=8, pady=4)
+        self.var_linea_ubicacion_escaneo = tk.StringVar(value="Ubicación: —")
+        self.var_linea_tiempo_escaneo = tk.StringVar(value="Tiempo: 0.0 s")
+        self.var_linea_conteos_escaneo = tk.StringVar(value="Esperados: 0 | Leídos únicos: 0")
 
-        tk.Label(mid, text="Activos (esperados en esta ubicación)", font=("", 9), fg="#444").pack(anchor="w")
+        tk.Label(top, textvariable=self.var_linea_ubicacion_escaneo, font=("", 9), anchor="w").pack(fill="x")
+        tk.Label(top, textvariable=self.var_linea_conteos_escaneo, font=("", 9), anchor="w").pack(fill="x")
+
+        mid = tk.Frame(self._marco_escaneo)
+        mid.pack(fill="both", expand=True, padx=8, pady=2)
 
         tree_wrap = tk.Frame(mid)
-        tree_wrap.pack(fill="both", expand=True, pady=(2, 4))
+        tree_wrap.pack(fill="both", expand=True, pady=(2, 2))
 
-        self.scan_tree = ttk.Treeview(
+        self.arbol_escaneo = ttk.Treeview(
             tree_wrap,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=5,
+            height=7,
         )
-        self.scan_tree.heading("status", text="Estado")
-        self.scan_tree.heading("epc", text="EPC")
-        self.scan_tree.heading("rssi", text="RSSI")
-        self.scan_tree.column("status", width=88, anchor="center")
-        self.scan_tree.column("epc", width=250, anchor="w")
-        self.scan_tree.column("rssi", width=48, anchor="center")
-        vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.scan_tree.yview)
-        self.scan_tree.configure(yscrollcommand=vsb_s.set)
-        self.scan_tree.pack(side="left", fill="both", expand=True)
+        self.arbol_escaneo.heading("status", text="Est.")
+        self.arbol_escaneo.heading("epc", text="Activo")
+        self.arbol_escaneo.heading("rssi", text="RSSI")
+        self.arbol_escaneo.column("status", width=62, anchor="center", stretch=False)
+        self.arbol_escaneo.column("epc", width=168, anchor="w", stretch=True)
+        self.arbol_escaneo.column("rssi", width=36, anchor="center", stretch=False)
+        vsb_s = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.arbol_escaneo.yview)
+        self.arbol_escaneo.configure(yscrollcommand=vsb_s.set)
+        self.arbol_escaneo.pack(side="left", fill="both", expand=True)
         vsb_s.pack(side="right", fill="y")
+        # Estilos para los tags
+        self.arbol_escaneo.tag_configure("encontrado", background="#F4F4F4")
+        self.arbol_escaneo.tag_configure("faltante", background="#FF7F7F")
+        self.arbol_escaneo.tag_configure("nuevo", background="#90EE90")
 
-        self.scan_tree.tag_configure("found", background="#F4F4F4")
-        self.scan_tree.tag_configure("missing", background="#FDECEC")
-        self.scan_tree.tag_configure("new", background="#FFF6D6")
+        # Log interno (no visible): lo mantenemos para debug sin ocupar espacio en 480×320
+        self.lista_log_escaneo = tk.Listbox(self._marco_escaneo, height=self._MAX_LINEAS_LOG_ESCANEO, font=("Consolas", 8))
 
-        tk.Label(
-            self._frame_scan,
-            text="Últimas lecturas (log)",
-            font=("", 8),
-            fg="#444",
-        ).pack(anchor="w", padx=10, pady=(0, 0))
-
-        self.listbox = tk.Listbox(self._frame_scan, height=self._LOG_MAX_LINES, font=("Consolas", 8))
-        self.listbox.pack(fill="x", padx=10, pady=4)
-
-        row_pistol = tk.Frame(self._frame_scan)
-        row_pistol.pack(fill="x", side="bottom", pady=(4, 4))
-
-        self.btn_begin_pistol = tk.Button(
+        row_pistol = tk.Frame(self._marco_escaneo)
+        row_pistol.pack(fill="x", side="bottom", pady=(2, 2))
+        # Botones para el pistoleo 
+        self.btn_iniciar_pistoleo = tk.Button(
             row_pistol,
-            text="Iniciar pistoleo",
-            font=("", 12, "bold"),
+            text="Presionar Trigger",
+            font=("", 9, "bold"),
             bg="#2E7D32",
             fg="white",
             activebackground="#1B5E20",
             activeforeground="white",
             relief="flat",
-            command=self.begin_pistol_scan,
+            command=self.iniciar_pistoleo,
         )
-        self.btn_begin_pistol.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=10)
+        self.btn_iniciar_pistoleo.pack(side="left", fill="x", expand=True, padx=(10, 6), ipady=2)
 
-        self.btn_stop = tk.Button(
+        self.btn_detener_escaneo = tk.Button(
             row_pistol,
             text="Detener",
-            font=("", 12, "bold"),
+            font=("", 9, "bold"),
             bg="#C62828",
             fg="white",
             activebackground="#B71C1C",
             activeforeground="white",
             relief="flat",
-            command=self.stop_scan,
+            command=self.detener_escaneo,
         )
-        self.btn_stop.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=10)
+        self.btn_detener_escaneo.pack(side="right", fill="x", expand=True, padx=(6, 10), ipady=2)
 
-        row = tk.Frame(self._frame_scan)
-        row.pack(fill="x", side="bottom", pady=(0, 8))
+        row = tk.Frame(self._marco_escaneo)
+        row.pack(fill="x", side="bottom", pady=(0, 4))
 
-        self.btn_pause = ttk.Button(
+        self.btn_pausar_escaneo = ttk.Button(
             row,
             text="Pausar",
             style="Handheld.TButton",
-            command=self._toggle_pause,
+            command=self._alternar_pausa_escaneo,
         )
-        self.btn_pause.pack(side="left", padx=(10, 4), ipadx=4, ipady=4)
+        self.btn_pausar_escaneo.pack(side="left", padx=(10, 4), ipadx=4, ipady=2)
 
-        self.btn_cancel_scan = ttk.Button(
+        self.btn_cancelar_escaneo = ttk.Button(
             row,
             text="Cancelar",
             style="Handheld.TButton",
-            command=self.cancel_scan,
+            command=self.cancelar_escaneo,
         )
-        self.btn_cancel_scan.pack(side="left", padx=4, ipadx=4, ipady=4)
+        self.btn_cancelar_escaneo.pack(side="left", padx=4, ipadx=4, ipady=2)
 
-        self._set_scan_controls_reading(False)
+        self._ajustar_controles_escaneo_activo(False)
+                
+    def _construir_resultados(self):
+        self._marco_resultados = tk.Frame(self.contenedor)
 
-    def _build_result(self):
-        self._frame_result = tk.Frame(self.container)
+        head = tk.Frame(self._marco_resultados)
+        head.pack(fill="x", padx=8, pady=(4, 2))
 
-        head = tk.Frame(self._frame_result)
-        head.pack(fill="x", padx=10, pady=(8, 4))
+        self.var_linea_ubicacion_resultados = tk.StringVar(value="Ubicación: ")
+        self.var_linea_estadisticas_resultados = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
 
-        self.result_line_location = tk.StringVar(value="Ubicación: —")
-        self.result_line_stats = tk.StringVar(value="Esperados: 0 | OK: 0 | Faltan: 0 | Nuevos: 0")
+        tk.Label(head, textvariable=self.var_linea_ubicacion_resultados, font=("", 9, "bold"), anchor="w").pack(fill="x")
+        tk.Label(head, textvariable=self.var_linea_estadisticas_resultados, font=("", 8), anchor="w").pack(fill="x")
 
-        tk.Label(head, textvariable=self.result_line_location, font=("", 10, "bold"), anchor="w").pack(fill="x")
-        tk.Label(head, textvariable=self.result_line_stats, font=("", 10), anchor="w").pack(fill="x")
-
-        filt = tk.Frame(self._frame_result)
+        filt = tk.Frame(self._marco_resultados)
         filt.pack(fill="x", padx=8, pady=(2, 4))
 
         tk.Label(filt, text="Ver:", font=("", 9)).pack(side="left", padx=(0, 6))
@@ -367,379 +1155,884 @@ class HandheldApp(tk.Tk):
                 filt,
                 text=label,
                 value=val,
-                variable=self._filter_mode,
-                command=self._on_filter_change,
+                variable=self._modo_filtro_resultados,
+                command=self._al_cambiar_filtro_resultados,
             ).pack(side="left", padx=2)
 
-        tree_frame = tk.Frame(self._frame_result)
+        tree_frame = tk.Frame(self._marco_resultados)
         tree_frame.pack(fill="both", expand=True, padx=8, pady=4)
-
-        self.tree = ttk.Treeview(
+            
+        self.arbol_resultados = ttk.Treeview(
             tree_frame,
             columns=("status", "epc", "rssi"),
             show="headings",
-            height=7,
+            height=6,
         )
-        self.tree.heading("status", text="Estado")
-        self.tree.heading("epc", text="EPC")
-        self.tree.heading("rssi", text="RSSI")
-        self.tree.column("status", width=96, anchor="center")
-        self.tree.column("epc", width=270, anchor="w")
-        self.tree.column("rssi", width=52, anchor="center")
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.arbol_resultados.heading("status", text="Est.")
+        self.arbol_resultados.heading("epc", text="Activo")
+        self.arbol_resultados.heading("rssi", text="RSSI")
+        self.arbol_resultados.column("status", width=62, anchor="center", stretch=False)
+        self.arbol_resultados.column("epc", width=168, anchor="w", stretch=True)
+        self.arbol_resultados.column("rssi", width=36, anchor="center", stretch=False)
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.arbol_resultados.yview)
+        self.arbol_resultados.configure(yscrollcommand=vsb.set)
+        self.arbol_resultados.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
+        
+        self.arbol_resultados.tag_configure("encontrado", background="#F4F4F4")
+        self.arbol_resultados.tag_configure("faltante", background="#FF7F7F")
+        self.arbol_resultados.tag_configure("nuevo", background="#90EE90")
 
-        self.tree.tag_configure("found", background="#F4F4F4")
-        self.tree.tag_configure("missing", background="#FDECEC")
-        self.tree.tag_configure("new", background="#FFF6D6")
+        self.arbol_resultados.bind("<Double-1>", self._al_doble_clic_resultado)
 
-        self.tree.bind("<Double-1>", self._on_result_double_click)
-
-        legend = tk.Frame(self._frame_result)
+        legend = tk.Frame(self._marco_resultados)
         legend.pack(fill="x", padx=8)
-        self._legend_chip(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "NO ESCANEADO", "#FDECEC").pack(side="left", padx=(0, 4))
-        self._legend_chip(legend, "ACTIVO NUEVO", "#FFF6D6").pack(side="left")
+        self._chip_leyenda(legend, "ENCONTRADO", "#F4F4F4").pack(side="left", padx=(0, 4))
+        self._chip_leyenda(legend, "NO ESCANEADO", "#FF7F7F").pack(side="left", padx=(0, 4))
+        self._chip_leyenda(legend, "ACTIVO NUEVO", "#90EE90").pack(side="left")
 
-        row = tk.Frame(self._frame_result)
-        row.pack(fill="x", pady=(6, 10))
+        row = tk.Frame(self._marco_resultados)
+        row.pack(fill="x", pady=(4, 6))
 
-        ttk.Button(row, text="Nuevo escaneo", style="HandheldBig.TButton", command=self._result_new_scan).pack(
-            fill="x", padx=12, ipadx=8, ipady=4
-        )
-
-    def _build_detail(self):
-        self._frame_detail = tk.Frame(self.container)
-
-        tk.Label(self._frame_detail, text="Detalle de activo", font=("", 12, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
-
-        box = tk.Frame(self._frame_detail)
-        box.pack(fill="both", expand=True, padx=12)
-
-        self.detail_epc_var = tk.StringVar(value="")
-        self.detail_status_var = tk.StringVar(value="")
-        self.detail_loc_var = tk.StringVar(value="")
-        self.detail_rssi_var = tk.StringVar(value="")
-
-        def line(lbl, var):
-            r = tk.Frame(box)
-            r.pack(fill="x", pady=4)
-            tk.Label(r, text=lbl, font=("", 9), width=18, anchor="w").pack(side="left")
-            tk.Label(r, textvariable=var, font=("", 9), wraplength=320, justify="left", anchor="w").pack(side="left")
-
-        line("EPC:", self.detail_epc_var)
-        line("Estado:", self.detail_status_var)
-        line("Ubicación esperada:", self.detail_loc_var)
-        line("Última RSSI:", self.detail_rssi_var)
+        btns = tk.Frame(row)
+        btns.pack(fill="x", padx=8)
 
         ttk.Button(
-            self._frame_detail,
+            btns,
+            text="Nuevo escaneo",
+            style="HandheldBig.TButton",
+            command=self._nuevo_escaneo_desde_resultados,
+        ).pack(side="left", fill="x", expand=True, ipadx=4, ipady=2, padx=(0, 4))
+
+        ttk.Button(
+            btns,
+            text="Subir reporte",
+            style="HandheldBig.TButton",
+            command=self._exportar_tipo_ubicacion_actualizado,
+        ).pack(side="left", fill="x", expand=True, ipadx=4, ipady=2, padx=(0, 4))
+
+        ttk.Button(
+            btns,
+            text="Menú",
+            style="HandheldBig.TButton",
+            command=self._volver_menu_desde_resultados,
+        ).pack(side="right", fill="x", expand=True, ipadx=4, ipady=2, padx=(4, 0))
+
+    def _construir_detalle(self):
+        m = self._marco_detalle = tk.Frame(self.contenedor)
+        m.columnconfigure(1, weight=1)
+
+        pie = tk.Frame(m)
+        pie.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(2, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
+        ttk.Button(
+            pie,
             text="Volver",
             style="HandheldBig.TButton",
-            command=lambda: self._show_frame("result"),
-        ).pack(side="bottom", pady=16, ipadx=16, ipady=6)
+            command=lambda: self._mostrar_marco("resultados"),
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 3), ipady=1)
+        ttk.Button(
+            pie,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._volver_menu_desde_resultados,
+        ).grid(row=0, column=1, sticky="ew", padx=(3, 0), ipady=1)
 
-    def _legend_chip(self, parent, text, bg):
+        tk.Label(m, text="Detalle", font=("", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=6, pady=2)
+
+        self.var_detalle_epc = tk.StringVar(value="")
+        self.var_detalle_estado = tk.StringVar(value="")
+        self.var_detalle_ubicacion = tk.StringVar(value="")
+        self.var_detalle_rssi = tk.StringVar(value="")
+        self.var_detalle_codigo_activo = tk.StringVar(value="")
+
+        def fila_detalle(fila: int, lbl: str, var: tk.StringVar) -> None:
+            tk.Label(m, text=lbl, font=("", 8), width=7, anchor="w").grid(row=fila, column=0, sticky="nw", padx=(6, 2))
+            tk.Label(m, textvariable=var, font=("", 8), wraplength=400, justify="left", anchor="w").grid(
+                row=fila, column=1, sticky="w"
+            )
+
+        fila_detalle(1, "Activo:", self.var_detalle_codigo_activo)
+        fila_detalle(2, "EPC:", self.var_detalle_epc)
+        fila_detalle(3, "Estado:", self.var_detalle_estado)
+        fila_detalle(4, "Ubic.:", self.var_detalle_ubicacion)
+        fila_detalle(5, "RSSI:", self.var_detalle_rssi)
+
+    def _volver_menu_desde_resultados(self):
+        """Salir del flujo de inventario a menú principal."""
+        self._volver_al_menu_principal()
+
+    def _construir_rastreo(self):
+        m = self._marco_rastreo = tk.Frame(self.contenedor)
+        m.columnconfigure(0, weight=1)
+
+        self._grid_cabecera_pantalla(m, "Rastrear activo", fila=0)
+
+        busq = tk.Frame(m)
+        busq.grid(row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0)
+        busq.columnconfigure(1, weight=1)
+        tk.Label(busq, text="Código:", font=("", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4))
+        self.var_rastreo_busqueda = tk.StringVar(value="")
+        tk.Entry(busq, textvariable=self.var_rastreo_busqueda, font=("", 9)).grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        ttk.Button(busq, text="Buscar", style="Handheld.TButton", command=self._rastreo_buscar).grid(row=0, column=2, padx=(0, 2))
+        ttk.Button(busq, text="Limpiar", style="Handheld.TButton", command=lambda: self.var_rastreo_busqueda.set("")).grid(
+            row=0, column=3
+        )
+
+        self.var_rastreo_linea = tk.StringVar(value="Activo: —")
+        tk.Label(m, textvariable=self.var_rastreo_linea, font=("", 8), anchor="w", wraplength=468).grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+        self.var_rastreo_ubicacion = tk.StringVar(value="Ubicación esperada: —")
+        tk.Label(m, textvariable=self.var_rastreo_ubicacion, font=("", 8), anchor="w", wraplength=468).grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+
+        prox = tk.Frame(m)
+        prox.grid(row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 2))
+        prox.columnconfigure(1, weight=1)
+        tk.Label(prox, text="Cercanía", font=("", 9, "bold")).grid(row=0, column=0, sticky="nw", padx=(0, 6))
+        self._barras_proximidad = BarrasSenal(prox, numero=4)
+        self._barras_proximidad.grid(row=0, column=1, sticky="w", pady=(0, 2))
+        self.var_proximidad_distancia = tk.StringVar(value="Busca el activo y pulsa Iniciar para acercarte")
+        tk.Label(
+            prox,
+            textvariable=self.var_proximidad_distancia,
+            font=("", 9),
+            anchor="w",
+            wraplength=400,
+            justify="left",
+        ).grid(row=1, column=0, columnspan=2, sticky="ew")
+
+        pie = tk.Frame(m)
+        pie.grid(row=5, column=0, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
+        self.btn_proximidad_iniciar = ttk.Button(
+            pie, text="Iniciar", style="HandheldBig.TButton", command=self._proximidad_iniciar
+        )
+        self.btn_proximidad_iniciar.grid(row=0, column=0, sticky="ew", padx=(0, 3), ipady=1)
+        self.btn_proximidad_detener = ttk.Button(
+            pie, text="Detener", style="HandheldBig.TButton", command=self._proximidad_detener, state="disabled"
+        )
+        self.btn_proximidad_detener.grid(row=0, column=1, sticky="ew", padx=(3, 0), ipady=1)
+
+    def _preparar_salir_modo_escaneo(self) -> None:
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+
+    def _entrar_rastreo(self):
+        self._ir_a_modulo_con_lector("rastreo", preparar=self._preparar_salir_modo_escaneo)
+
+    def _entrar_escritura(self):
+        def preparar():
+            self._preparar_salir_modo_escaneo()
+            self._proximidad_detener()
+
+        self._ir_a_modulo_con_lector("escritura", preparar=preparar)
+
+    def _rastreo_normalizar_entrada(self, texto: str) -> tuple[str, str]:
+        return self._servicio_rastreo.normalizar_entrada(texto)
+
+    def _rastreo_buscar(self):
+        resultado_rastreo = self._servicio_rastreo.rastrear(self.var_rastreo_busqueda.get())
+        if not resultado_rastreo:
+            self._msg_info("Rastreo", "Escribe el código del activo a buscar.")
+            return
+        codigo = (resultado_rastreo.codigo_activo or "").strip()
+        if codigo:
+            self.var_rastreo_linea.set(self._texto_corto("Activo: {0}".format(codigo), 64))
+        else:
+            self.var_rastreo_linea.set("Activo no encontrado en el catálogo")
+        if not resultado_rastreo.ubicaciones:
+            ubic_txt = "(sin ubicación en catálogo)"
+        elif len(resultado_rastreo.ubicaciones) == 1:
+            ubic_txt = resultado_rastreo.ubicaciones[0]
+        else:
+            ubic_txt = " | ".join(resultado_rastreo.ubicaciones[:2])
+            if len(resultado_rastreo.ubicaciones) > 2:
+                ubic_txt += " …"
+        self.var_rastreo_ubicacion.set(self._texto_corto("Ubicación esperada: " + ubic_txt, 64))
+        self._rastreador_proximidad.reiniciar(resultado_rastreo.epc_en_hex)
+        self._barras_proximidad.establecer(0)
+        self.var_proximidad_distancia.set("Pulsa Iniciar y acércate al activo")
+
+    def _proximidad_ajustar_controles(self, activa: bool):
+        self._proximidad_activa = bool(activa)
+        self.btn_proximidad_iniciar.config(state=("disabled" if activa else "normal"))
+        self.btn_proximidad_detener.config(state=("normal" if activa else "disabled"))
+
+    def _proximidad_iniciar(self):
+        # Debe haber EPC objetivo
+        st = self._rastreador_proximidad.estado
+        if st is None or not st.epc_objetivo:
+            # intenta buscar con lo que haya en input
+            self._rastreo_buscar()
+            st = self._rastreador_proximidad.estado
+            if st is None or not st.epc_objetivo:
+                return
+
+        self._proximidad_detener()
+        self._proximidad_ajustar_controles(True)
+
+        objetivo = st.epc_objetivo
+        seen = {"any": False}
+
+        if self._forzar_sim_proximidad:
+            self.var_proximidad_distancia.set("Modo demostración (prox_force_sim activo)")
+            self._proximidad_iniciar_simulacion()
+            self._proximidad_iniciar_actualizacion_ui()
+            return
+        if not self._lector.connected:
+            self._msg_warning("Rastreo", "Conecta el lector desde el menú («Conectar lector»).")
+            return
+
+        def al_tag(tag, _idx):
+            epc = (tag.epc_hex or "").lower()
+            if epc != objetivo:
+                return
+            seen["any"] = True
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            self._rastreador_proximidad.actualizar(tag.rssi, instante_ms)
+
+        def al_error(e):
+            self._al_error_escaneo(e)
+            self._proximidad_detener()
+
+        self._escaner.reiniciar()
+        self._escaner.iniciar(al_leer_etiqueta=al_tag, al_error=al_error)
+        self._proximidad_iniciar_actualizacion_ui()
+
+    def _proximidad_detener(self):
+        self._proximidad_ajustar_controles(False)
+        # Detiene loop UI
+        if self._tarea_ui_proximidad is not None:
+            try:
+                self.after_cancel(self._tarea_ui_proximidad)
+            except Exception:
+                pass
+        self._tarea_ui_proximidad = None
+        if getattr(self, "_tarea_sim_proximidad", None) is not None:
+            try:
+                self.after_cancel(self._tarea_sim_proximidad)
+            except Exception:
+                pass
+        self._tarea_sim_proximidad = None
+        # Aquí sí detenemos el escáner; en otras pantallas no forzamos stop desde este módulo.
+        try:
+            self._escaner.detener()
+        except Exception:
+            pass
+
+    def _proximidad_iniciar_actualizacion_ui(self):
+        def actualizar_proximidad_ui():
+            if not self._proximidad_activa:
+                return
+            estado_prox = self._rastreador_proximidad.estado
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            if estado_prox and estado_prox.rssi_suavizado is not None:
+                perdido = (
+                    estado_prox.ultima_lectura_ms is not None
+                    and instante_ms - estado_prox.ultima_lectura_ms > 1200
+                )
+                self._actualizar_indicador_proximidad(
+                    estado_prox.rssi_suavizado, sin_senal=perdido
+                )
+            else:
+                self._actualizar_indicador_proximidad(None, sin_senal=True)
+            self._tarea_ui_proximidad = self.after(200, actualizar_proximidad_ui)
+
+        self._tarea_ui_proximidad = self.after(100, actualizar_proximidad_ui)
+
+    def _proximidad_iniciar_simulacion(self):
+        # Simulación simple: random walk entre -90 y -35 dBm
+        cur = {"r": -75}
+
+        def paso_simulacion():
+            if not self._proximidad_activa:
+                return
+            cur["r"] += random.randint(-3, 3)
+            if cur["r"] < -90:
+                cur["r"] = -90
+            if cur["r"] > -35:
+                cur["r"] = -35
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            self._rastreador_proximidad.actualizar(cur["r"], instante_ms)
+            self._tarea_sim_proximidad = self.after(250, paso_simulacion)
+
+        self._tarea_sim_proximidad = self.after(250, paso_simulacion)
+
+    def _construir_escritura(self):
+        m = self._marco_escritura = tk.Frame(self.contenedor)
+        m.columnconfigure(1, weight=1)
+
+        self._grid_cabecera_pantalla(m, "Escribir etiqueta", fila=0)
+
+        self.var_escritura_etiqueta_leida = tk.StringVar(value="Etiqueta escaneada: —")
+        tk.Label(m, textvariable=self.var_escritura_etiqueta_leida, font=("", 8), anchor="w", wraplength=468).grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+
+        cod = tk.Frame(m)
+        cod.grid(row=2, column=0, columnspan=2, sticky="ew", padx=6, pady=2)
+        cod.columnconfigure(1, weight=1)
+        tk.Label(cod, text="Código del activo:", font=("", 9)).grid(row=0, column=0, sticky="w", padx=(0, 4))
+        self.var_escritura_codigo_entrada = tk.StringVar(value="")
+        tk.Entry(cod, textvariable=self.var_escritura_codigo_entrada, font=("", 9)).grid(row=0, column=1, sticky="ew")
+        self.var_escritura_codigo_entrada.trace_add("write", lambda *_: self._escritura_calcular_nuevo_epc(silent=True))
+
+        self.var_escritura_estado = tk.StringVar(value="Escanea una etiqueta o escribe el código.")
+        tk.Label(m, textvariable=self.var_escritura_estado, font=("", 8), fg="#444", anchor="w", wraplength=468).grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=6, pady=0
+        )
+
+        pie = tk.Frame(m)
+        pie.grid(row=4, column=0, columnspan=2, sticky="ew", padx=6, pady=(4, 4))
+        pie.columnconfigure(0, weight=1)
+        pie.columnconfigure(1, weight=1)
+        ttk.Button(pie, text="Escanear", style="HandheldBig.TButton", command=self._escritura_escanear_una_vez).grid(
+            row=0, column=0, sticky="ew", padx=(0, 3), ipady=1
+        )
+        ttk.Button(pie, text="Escribir", style="HandheldBig.TButton", command=self._escritura_ejecutar_programacion).grid(
+            row=0, column=1, sticky="ew", padx=(3, 0), ipady=1
+        )
+
+        # Estado interno
+        self._epc_memoria_escritura_actual = ""
+        self._epc_memoria_escritura_nuevo = ""
+        self._escritura_codigo_al_escanear = ""
+        self._escritura_pc_etiqueta = None
+        # (la simulación/hardware la gestiona ServicioEscrituraEtiquetas)
+
+    def _escritura_escanear_una_vez(self):
+        self._escaner.detener()
+        try:
+            lectura = self._servicio_escritura.escanear_una_etiqueta(self._lector)
+        except Exception as e:
+            self._msg_error("Escritura", str(e))
+            return
+
+        self._epc_memoria_escritura_actual = lectura.epc_en_hex
+        self._escritura_pc_etiqueta = lectura.pc
+        codigo_leido = (lectura.codigo_decodificado or "").strip()
+        self._escritura_codigo_al_escanear = codigo_leido
+        valor = valor_etiqueta_para_operador(lectura.epc_en_hex, codigo_leido or None)
+        texto = "Etiqueta escaneada: {0}".format(valor)
+        if lectura.simulado:
+            texto += " (prueba)"
+        self.var_escritura_etiqueta_leida.set(self._texto_corto(texto, 64))
+        if codigo_leido:
+            self.var_escritura_codigo_entrada.set(codigo_leido)
+            self.var_escritura_estado.set("Revisa el código y pulsa Escribir.")
+        else:
+            self.var_escritura_estado.set("Etiqueta leída. Escribe el código del activo a grabar.")
+        self._escritura_calcular_nuevo_epc(silent=True)
+
+    def _escritura_calcular_nuevo_epc(self, silent: bool = False):
+        codigo = (self.var_escritura_codigo_entrada.get() or "").strip()
+        if not codigo:
+            self._epc_memoria_escritura_nuevo = ""
+            self.var_escritura_estado.set("Escribe el código del activo a grabar.")
+            return
+        epc = self._servicio_escritura.calcular_epc_desde_codigo(codigo)
+        if not epc:
+            self._epc_memoria_escritura_nuevo = ""
+            self.var_escritura_estado.set("Código no válido. Revisa e intenta de nuevo.")
+            return
+        self._epc_memoria_escritura_nuevo = epc
+        self.var_escritura_estado.set(self._texto_corto("Listo. Se grabará: {0}".format(codigo), 64))
+        if not silent:
+            self.var_escritura_estado.set(self._texto_corto("Listo para grabar etiqueta ({0}).".format(codigo), 64))
+
+    def _escritura_ejecutar_programacion(self):
+        if not self._epc_memoria_escritura_nuevo:
+            self._escritura_calcular_nuevo_epc(silent=True)
+        try:
+            self._escaner.detener()
+            resultado_escritura = self._servicio_escritura.programar_epc(
+                self._lector,
+                self._epc_memoria_escritura_actual,
+                self._epc_memoria_escritura_nuevo,
+                pc_etiqueta=self._escritura_pc_etiqueta,
+            )
+        except Exception as e:
+            self._msg_error("Escritura", str(e))
+            return
+
+        codigo_nuevo = (self.var_escritura_codigo_entrada.get() or "").strip()
+        codigo_anterior = (self._escritura_codigo_al_escanear or "").strip()
+        mensaje_estado = estado_escritura_programada_operador(codigo_anterior, codigo_nuevo)
+        self._msg_info(
+            "Escritura",
+            "Etiqueta grabada." if not resultado_escritura.simulado else "Prueba: etiqueta grabada (simulado).",
+        )
+        self._reiniciar_pantalla_escritura()
+        self.var_escritura_estado.set(self._texto_corto(mensaje_estado, 64))
+
+    def _construir_hid(self):
+        """Modo pistola como teclado Bluetooth."""
+        self._marco_hid = tk.Frame(self.contenedor)
+        ttk.Button(
+            self._marco_hid,
+            text="Menú",
+            style="Handheld.TButton",
+            command=self._volver_al_menu_principal,
+        ).pack(anchor="w", padx=8, pady=4)
+        tk.Label(
+            self._marco_hid,
+            text="Modo teclado (Bluetooth)",
+            font=("", 11, "bold"),
+        ).pack(anchor="w", padx=10, pady=(0, 4))
+        tk.Label(
+            self._marco_hid,
+            text="Empareja la pistola con la laptop. Si ya se ha hecho antes, primero olvida el dispositivo en la laptop. Después, empareja de nuevo.",
+            font=("", 8),
+            wraplength=self._WRAP_TEXTO,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=2)
+        tk.Label(
+            self._marco_hid,
+            text="Para inventario otra vez regresar a menú.",
+            font=("", 8),
+            fg="#444",
+            wraplength=self._WRAP_TEXTO,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(4, 2))
+
+    def _chip_leyenda(self, parent, text, bg):
         f = tk.Frame(parent, bg=bg, bd=1, relief="solid")
         tk.Label(f, text=text, bg=bg, padx=4, pady=1, font=("", 8)).pack()
         return f
 
-    def _on_filter_change(self):
-        self._apply_result_filter()
+    def _al_cambiar_filtro_resultados(self):
+        self._aplicar_filtro_resultados()
 
-    def _result_new_scan(self):
-        self._show_frame("setup")
+    def _nuevo_escaneo_desde_resultados(self):
+        self._mostrar_marco("ubicacion")
 
-    def _toggle_pause(self):
-        if not self._scanner.is_running():
+    def _alternar_pausa_escaneo(self):
+        if not self._escaner.esta_en_ejecucion():
             return
-        if self._scanner.is_paused():
-            self._scanner.resume()
-            self.btn_pause.config(text="Pausar")
+        if self._escaner.esta_pausado():
+            self._escaner.reanudar()
+            self.btn_pausar_escaneo.config(text="Pausar")
         else:
-            self._scanner.pause()
-            self.btn_pause.config(text="Reanudar")
+            self._escaner.pausar()
+            self.btn_pausar_escaneo.config(text="Reanudar")
 
-    def _set_scan_controls_reading(self, active):
-        """active=True: pistoleo en curso (Iniciar off, Detener/Pausar on). active=False: listo para iniciar."""
-        if active:
-            self.btn_begin_pistol.config(state="disabled")
-            self.btn_stop.config(state="normal")
-            self.btn_pause.config(state="normal", text="Pausar")
-            self.btn_cancel_scan.config(state="normal")
+    def _ajustar_controles_escaneo_activo(self, en_curso):
+        """en_curso=True: pistoleo en curso (Iniciar off, Detener/Pausar on). en_curso=False: listo para iniciar."""
+        if en_curso:
+            self.btn_iniciar_pistoleo.config(state="disabled")
+            self.btn_detener_escaneo.config(state="normal")
+            self.btn_pausar_escaneo.config(state="normal", text="Pausar")
+            self.btn_cancelar_escaneo.config(state="normal")
         else:
-            self.btn_begin_pistol.config(state="normal")
-            self.btn_stop.config(state="disabled")
-            self.btn_pause.config(state="disabled", text="Pausar")
+            self.btn_iniciar_pistoleo.config(state="normal")
+            self.btn_detener_escaneo.config(state="disabled")
+            self.btn_pausar_escaneo.config(state="disabled", text="Pausar")
 
-    def _fill_scan_tree_and_header(self):
-        loc = self._location_key()
-        self._refresh_setup_hint()
-        self._expected_set = self._inventory.get_expected_set(loc)
-        self._tree_expected_items = {}
-        self._tree_new_items = {}
-        for item in self.scan_tree.get_children():
-            self.scan_tree.delete(item)
-        for epc in sorted(list(self._expected_set)):
-            iid = self.scan_tree.insert("", tk.END, values=("NO ESCANEADO", epc, ""), tags=("missing",))
-            self._tree_expected_items[epc] = iid
-        self.scan_line_location.set("Ubicación: {0}".format(loc))
-        self.scan_line_time.set("Tiempo: 0.0 s")
-        self.scan_line_counts.set(
-            "Esperados: {0} | Leídos únicos: 0".format(self._inventory.expected_count(loc))
+    def _llenar_arbol_escaneo_y_encabezado(self):
+        ubicacion = self._clave_ubicacion_actual()
+        self._actualizar_pista_ubicacion()
+        self._conjunto_epcs_esperados = self._servicio_inventario.conjunto_esperados(ubicacion)
+        self._arbol_escaneo_items_esperados = {}
+        self._arbol_escaneo_items_nuevos = {}
+        for item in self.arbol_escaneo.get_children():
+            self.arbol_escaneo.delete(item)
+        for epc in sorted(list(self._conjunto_epcs_esperados)):
+            disp = mostrar_activo_desde_epc(epc)
+            iid = self.arbol_escaneo.insert("", tk.END, values=("NO ESCANEADO", disp, ""), tags=("faltante",))
+            self._arbol_escaneo_items_esperados[epc] = iid
+        self.var_linea_ubicacion_escaneo.set("Ubicación: {0}".format(ubicacion))
+        self.var_linea_tiempo_escaneo.set("Tiempo: 0.0 s")
+        self.var_linea_conteos_escaneo.set(
+            "Esperados: {0} | Leídos únicos: 0".format(self._servicio_inventario.cantidad_esperados(ubicacion))
         )
 
-    def go_to_scan_screen(self):
+    def _normalizar_seleccion_ubicacion(self) -> bool:
+        """Solo acepta edificio y sala que coincidan exactamente con una opción de la lista."""
+        ed = self.campo_edificio.valor_valido()
+        if not ed:
+            self._msg_warning("Ubicación", "Elige un edificio de la lista.")
+            return False
+        sala = self.campo_sala.valor_valido()
+        if not sala:
+            self._msg_warning("Ubicación", "Elige cubículo / lab / sala de la lista.")
+            return False
+        self._al_texto_edificio_cambio()
+        return True
+
+    def ir_a_pantalla_escaneo(self):
         """Solo navega a la pantalla de inventario; no arranca el lector (evita el mismo clic como trigger)."""
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._recent_log = []
-        self.listbox.delete(0, tk.END)
-        self._fill_scan_tree_and_header()
-        self._set_scan_controls_reading(False)
-        self._show_frame("scan")
-
-    def begin_pistol_scan(self):
-        """Aquí sí arranca el escaneo continuo (simulación de pistoleo)."""
-        if self._scanner.is_running():
+        if not self._normalizar_seleccion_ubicacion():
             return
-        self._cancel_pending_pistol_start()
-        self._scanner.reset()
-        self._recent_log = []
-        self.listbox.delete(0, tk.END)
-        self._fill_scan_tree_and_header()
-        self._set_scan_controls_reading(True)
-        # Pequeño retraso: el clic del botón no debe solaparse con la primera lectura (trigger simulado).
-        self._pistol_start_job = self.after(120, self._start_pistol_thread)
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._lineas_log_escaneo = []
+        self.lista_log_escaneo.delete(0, tk.END)
+        self._llenar_arbol_escaneo_y_encabezado()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("escaneo")
 
-    def _cancel_pending_pistol_start(self):
-        if self._pistol_start_job is not None:
+    def iniciar_pistoleo(self):
+        """Aquí sí arranca el escaneo continuo (simulación de pistoleo)."""
+        if self._escaner.esta_en_ejecucion():
+            return
+        self._asegurar_puerto_sin_servicio_gatt_conflicto()
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reiniciar()
+        self._lineas_log_escaneo = []
+        self.lista_log_escaneo.delete(0, tk.END)
+        self._llenar_arbol_escaneo_y_encabezado()
+        self._ajustar_controles_escaneo_activo(True)
+        # Pequeño retraso: el clic del botón no debe solaparse con la primera lectura (trigger simulado).
+        self._tarea_inicio_pistoleo = self.after(120, self._iniciar_hilo_pistoleo)
+
+    def _cancelar_inicio_pistoleo_pendiente(self):
+        if self._tarea_inicio_pistoleo is not None:
             try:
-                self.after_cancel(self._pistol_start_job)
+                self.after_cancel(self._tarea_inicio_pistoleo)
             except Exception:
                 pass
-            self._pistol_start_job = None
+            self._tarea_inicio_pistoleo = None
 
-    def _start_pistol_thread(self):
-        self._pistol_start_job = None
-        if self._scanner.is_running():
+    def _iniciar_hilo_pistoleo(self):
+        self._tarea_inicio_pistoleo = None
+        if self._escaner.esta_en_ejecucion():
             return
-        self._scan_started_ms = int(self.tk.call("clock", "milliseconds"))
-        self._start_scan_timer()
-        self._scanner.resume()
-        self._scanner.start(on_tag_read=self._on_tag_read)
+        self._escaneo_inicio_ms = int(self.tk.call("clock", "milliseconds"))
+        self._iniciar_temporizador_escaneo()
+        self._escaner.reanudar()
+        self._escaner.iniciar(al_leer_etiqueta=self._al_leer_etiqueta, al_error=self._al_error_escaneo)
 
-    def connect(self):
-        if self._driver.connected:
-            messagebox.showinfo("Info", "Ya conectado.")
-            self.btn_continue.config(state="normal")
-            self.home_status_var.set("Lector: conectado")
+    def _al_error_escaneo(self, e: Exception):
+        # Corre en hilo de Escaner; brincar a hilo UI con after()
+        def ejecutar_ui():
+            self._cancelar_inicio_pistoleo_pendiente()
+            self._escaner.reanudar()
+            self._escaner.detener()
+            self._detener_temporizador_escaneo()
+            self._ajustar_controles_escaneo_activo(False)
+            mensaje_error = (
+                "Se perdió la conexión con el lector (serial).\n\n"
+                f"Detalle: {e}\n\n"
+                "Causas típicas:\n"
+                "- Cable/OTG flojo o el Arduino se reinició\n"
+                "- Otro proceso está usando el puerto (p. ej. Monitor Serie / servicio)\n"
+                "- Puerto equivocado (/dev/ttyUSB0 vs /dev/ttyACM0)\n\n"
+                "Tip: prueba en terminal:\n"
+                "  ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null\n"
+                "  lsof /dev/ttyUSB0 2>/dev/null\n"
+            )
+            self._msg_error("Lector desconectado", mensaje_error)
+
+        try:
+            self.after(0, ejecutar_ui)
+        except Exception:
+            pass
+
+    def conectar_lector(self):
+        if self._lector.connected:
+            self._msg_info("Info", "Ya conectado.")
+            self.btn_continuar.config(state="normal")
+            self.var_estado_lector.set("Lector: conectado")
             return
-        port = self.port_var.get().strip()
+        self._asegurar_puerto_sin_servicio_gatt_conflicto()
+        port = self.var_puerto_serial.get().strip()
         port_l = port.lower()
         if port_l.startswith("/dev/ttyusb"):
             port = "/dev/ttyUSB" + port[len("/dev/ttyusb") :]
         elif port_l.startswith("/dev/ttyacm"):
             port = "/dev/ttyACM" + port[len("/dev/ttyacm") :]
         if not port:
-            messagebox.showerror("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
+            self._msg_error("Error", "Indica el puerto (COM5, /dev/ttyUSB0, …).")
             return
         try:
-            baud = int(self.baud_var.get().strip())
+            baud = int(self.var_baudios.get().strip())
         except ValueError:
-            messagebox.showerror("Error", "Baud inválido.")
+            self._msg_error("Error", "Baud inválido.")
             return
         try:
-            self._driver.connect(port, baud, debug=False)
+            self._lector.conectar(port, baud, debug=False)
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            self._msg_error("Error", str(e))
             return
-        self.home_status_var.set("Lector: conectado ({0} @ {1})".format(port, baud))
-        self.btn_connect.config(state="disabled")
-        self.btn_continue.config(state="normal")
+        self._puerto_lector_activo = port
+        self.var_estado_lector.set("Lector: conectado ({0} @ {1})".format(port, baud))
+        self.btn_conectar_lector.config(state="disabled")
+        self.btn_continuar.config(state="normal")
+        self._actualizar_estado_lector_en_menu()
+        if self._destino_tras_conexion != "menu":
+            self._continuar_tras_conexion()
 
-    def stop_scan(self):
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._compare_and_show()
-        self._show_frame("result")
+    def detener_escaneo(self):
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._comparar_y_mostrar_resultados()
+        self._mostrar_marco("resultados")
 
-    def cancel_scan(self):
-        self._cancel_pending_pistol_start()
-        self._scanner.resume()
-        self._scanner.stop()
-        self._stop_scan_timer()
-        self._set_scan_controls_reading(False)
-        self._show_frame("setup")
+    def _exportar_tipo_ubicacion_actualizado(self):
+        """Genera un reporte de sesión con el MISMO formato que el catálogo de activos.
 
-    def _start_scan_timer(self):
-        self._stop_scan_timer()
+        - Salida: lista JSON con objetos `{idDetalle, tipoUbicacion, activo:{...}}`
+        - Solo incluye los activos escaneados en esta sesión (found)
+        - tipoUbicacion:
+          - C si el EPC era esperado en la ubicación actual
+          - U si el EPC fue escaneado pero no era esperado en la ubicación actual
+        """
+        try:
+            ubicacion = self._clave_ubicacion_actual()
+            muestra = self._ultima_muestra_escaneo or {"seen_epcs": set()}
+            leidos = set(muestra.get("seen_epcs") or set())
+            esperados = set(self._conjunto_epcs_esperados or set())
 
-        def tick():
-            if not self._scanner.is_running():
+            directorio_actual = os.path.dirname(os.path.abspath(__file__))
+            dir_web = os.path.abspath(os.path.join(directorio_actual, "..", "..", "pi_ble_hid", "web"))
+            ruta_activos = os.path.join(dir_web, "activosPiso2_Computacion.json")
+            if not os.path.isfile(ruta_activos):
+                self._msg_error("Actualización", f"No existe:\n{ruta_activos}")
                 return
-            now_ms = int(self.tk.call("clock", "milliseconds"))
-            elapsed_s = 0.0
-            if self._scan_started_ms is not None:
-                elapsed_s = max(0.0, (now_ms - self._scan_started_ms) / 1000.0)
-            loc = self._location_key()
-            snap = self._scanner.snapshot()
-            uniques = len(snap["seen_epcs"])
-            self.scan_line_location.set("Ubicación: {0}".format(loc))
-            self.scan_line_time.set("Tiempo: {0:.1f} s".format(elapsed_s))
-            self.scan_line_counts.set(
-                "Esperados: {0} | Leídos únicos: {1}".format(self._inventory.expected_count(loc), uniques)
+            filas = json.loads(open(ruta_activos, "r", encoding="utf-8").read())
+            if not isinstance(filas, list):
+                self._msg_error("Actualización", "El JSON de activos no tiene formato de lista.")
+                return
+
+            # Índice por código de activo para recuperar la fila original sin cambiar su estructura.
+            indice_codigo = {}
+            for fila in filas:
+                activo_obj = (fila or {}).get("activo") or {}
+                codigo = activo_obj.get("activo")
+                if codigo:
+                    indice_codigo[str(codigo).strip()] = fila
+
+            esperados_min = {str(x).lower() for x in esperados}
+            filas_salida = []
+            leidos_min = {str(x).lower() for x in leidos}
+
+            # 1) Escaneados: C/U (o ACTIVO NUEVO si no existe en catálogo base)
+            for epc in sorted(leidos_min):
+                codigo = epc12_hex_a_codigo_activo(epc)
+                fila_orig = indice_codigo.get(codigo) if codigo else None
+                if fila_orig:
+                    copia = json.loads(json.dumps(fila_orig, ensure_ascii=False))  # deep copy sin cambiar formato
+                    copia["tipoUbicacion"] = "C" if epc in esperados_min else "U"
+                    filas_salida.append(copia)
+                    continue
+
+                # Activo NUEVO (no existe en el catálogo base): conservar formato "tipo webservice"
+                filas_salida.append(
+                    {
+                        "idDetalle": None,
+                        "tipoUbicacion": "U",
+                        "activo": {
+                            "activo": codigo or None,
+                            "descripcion": "ACTIVO NUEVO",
+                            "idUbicacion": None,
+                            "nombreUbicacion": ubicacion,
+                            "nombreResponsable": None,
+                        },
+                    }
+                )
+
+            # 2) Esperados pero NO escaneados en esta ubicación: N
+            for epc in sorted(esperados_min.difference(leidos_min)):
+                codigo = epc12_hex_a_codigo_activo(epc)
+                if not codigo:
+                    continue
+                fila_orig = indice_codigo.get(codigo)
+                if not fila_orig:
+                    continue
+                copia = json.loads(json.dumps(fila_orig, ensure_ascii=False))  # deep copy
+                copia["tipoUbicacion"] = "N"
+                filas_salida.append(copia)
+
+            dir_resultados = os.path.abspath(os.path.join(dir_web, "resultados"))
+            os.makedirs(dir_resultados, exist_ok=True)
+            marca_tiempo = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            ubicacion_segura = "".join([c for c in ubicacion if c.isalnum() or c in (" ", "-", "_", "·")]).strip().replace(" ", "_")
+            ruta_salida = os.path.join(dir_resultados, f"activosPiso2_Computacion_sesion_{ubicacion_segura}_{marca_tiempo}.json")
+            open(ruta_salida, "w", encoding="utf-8").write(json.dumps(filas_salida, ensure_ascii=False, indent=2))
+
+            self._msg_info("Actualización", f"Archivo generado:\n{ruta_salida}")
+        except Exception:
+            # No bloquea el flujo principal
+            return
+
+    def cancelar_escaneo(self):
+        self._cancelar_inicio_pistoleo_pendiente()
+        self._escaner.reanudar()
+        self._escaner.detener()
+        self._detener_temporizador_escaneo()
+        self._ajustar_controles_escaneo_activo(False)
+        self._mostrar_marco("ubicacion")
+
+    def _iniciar_temporizador_escaneo(self):
+        self._detener_temporizador_escaneo()
+
+        def actualizar_temporizador_escaneo():
+            if not self._escaner.esta_en_ejecucion():
+                return
+            instante_ms = int(self.tk.call("clock", "milliseconds"))
+            segundos_transcurridos = 0.0
+            if self._escaneo_inicio_ms is not None:
+                segundos_transcurridos = max(0.0, (instante_ms - self._escaneo_inicio_ms) / 1000.0)
+            ubicacion = self._clave_ubicacion_actual()
+            muestra_act = self._escaner.instantanea()
+            total_unicos = len(muestra_act["seen_epcs"])
+            self.var_linea_ubicacion_escaneo.set("Ubicación: {0}".format(ubicacion))
+            self.var_linea_tiempo_escaneo.set("Tiempo: {0:.1f} s".format(segundos_transcurridos))
+            self.var_linea_conteos_escaneo.set(
+                "Esperados: {0} | Leídos únicos: {1}".format(self._servicio_inventario.cantidad_esperados(ubicacion), total_unicos)
             )
-            self._scan_timer_job = self.after(250, tick)
+            self._tarea_temporizador_escaneo = self.after(250, actualizar_temporizador_escaneo)
 
-        self._scan_timer_job = self.after(250, tick)
+        self._tarea_temporizador_escaneo = self.after(250, actualizar_temporizador_escaneo)
 
-    def _stop_scan_timer(self):
-        if self._scan_timer_job is not None:
+    def _detener_temporizador_escaneo(self):
+        if self._tarea_temporizador_escaneo is not None:
             try:
-                self.after_cancel(self._scan_timer_job)
+                self.after_cancel(self._tarea_temporizador_escaneo)
             except Exception:
                 pass
-        self._scan_timer_job = None
-        self._scan_started_ms = None
+        self._tarea_temporizador_escaneo = None
+        self._escaneo_inicio_ms = None
 
-    def _append_log_line(self, line):
-        self._recent_log.append(line)
-        while len(self._recent_log) > self._LOG_MAX_LINES:
-            self._recent_log.pop(0)
-        self.listbox.delete(0, tk.END)
-        for ln in self._recent_log:
-            self.listbox.insert(tk.END, ln)
+    def _agregar_linea_log_escaneo(self, fila_log):
+        self._lineas_log_escaneo.append(fila_log)
+        while len(self._lineas_log_escaneo) > self._MAX_LINEAS_LOG_ESCANEO:
+            self._lineas_log_escaneo.pop(0)
+        self.lista_log_escaneo.delete(0, tk.END)
+        for ln in self._lineas_log_escaneo:
+            self.lista_log_escaneo.insert(tk.END, ln)
 
-    def _on_tag_read(self, tag, idx_in_batch):
-        line = "{0}  RSSI={1}".format(tag.epc_hex, tag.rssi)
+    def _al_leer_etiqueta(self, tag, idx_in_batch):
+        fila_log = "{0}  RSSI={1}".format(tag.epc_hex, tag.rssi)
         delay_ms = idx_in_batch * 45
 
-        def append():
-            self._append_log_line(line)
-            self._update_scan_tree_live(tag)
+        def agregar_a_log():
+            self._agregar_linea_log_escaneo(fila_log)
+            self._actualizar_arbol_escaneo_en_vivo(tag)
 
         if delay_ms <= 0:
-            self.after(0, append)
+            self.after(0, agregar_a_log)
         else:
-            self.after(delay_ms, append)
+            self.after(delay_ms, agregar_a_log)
 
-    def _update_scan_tree_live(self, tag):
+    def _actualizar_arbol_escaneo_en_vivo(self, tag):
         epc = tag.epc_hex
-        if epc in self._expected_set:
-            iid = self._tree_expected_items.get(epc)
+        if epc in self._conjunto_epcs_esperados:
+            iid = self._arbol_escaneo_items_esperados.get(epc)
             if iid is not None:
                 try:
-                    self.scan_tree.item(
+                    disp = mostrar_activo_desde_epc(epc)
+                    self.arbol_escaneo.item(
                         iid,
-                        values=("ENCONTRADO", epc, tag.rssi),
-                        tags=("found",),
+                        values=("ENCONTRADO", disp, tag.rssi),
+                        tags=("encontrado",),
                     )
                 except Exception:
                     pass
             return
 
-        iid_new = self._tree_new_items.get(epc)
+        iid_new = self._arbol_escaneo_items_nuevos.get(epc)
         if iid_new is None:
-            iid_new = self.scan_tree.insert("", tk.END, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
-            self._tree_new_items[epc] = iid_new
+            disp = mostrar_activo_desde_epc(epc)
+            iid_new = self.arbol_escaneo.insert("", tk.END, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("nuevo",))
+            self._arbol_escaneo_items_nuevos[epc] = iid_new
         else:
             try:
-                self.scan_tree.item(iid_new, values=("ACTIVO NUEVO", epc, tag.rssi), tags=("new",))
+                disp = mostrar_activo_desde_epc(epc)
+                self.arbol_escaneo.item(iid_new, values=("ACTIVO NUEVO", disp, tag.rssi), tags=("nuevo",))
             except Exception:
                 pass
 
-    def _compare_and_show(self):
-        loc = self._location_key()
-        r, snap, expected = self._inventory.compare_location(loc)
-        self._last_snap = snap
-        self._result_location = loc
+    def _comparar_y_mostrar_resultados(self):
+        ubicacion = self._clave_ubicacion_actual()
+        resultado, muestra, epcs_esperados = self._servicio_inventario.comparar_ubicacion(ubicacion)
+        self._ultima_muestra_escaneo = muestra
+        self._ubicacion_texto_resultados = ubicacion
 
-        self.result_line_location.set("Ubicación: {0}".format(loc))
-        self.result_line_stats.set(
-            "Esperados: {0} | OK: {1} | Faltan: {2} | Nuevos: {3}".format(
-                len(expected),
-                len(r.encontrados),
-                len(r.faltantes),
-                len(r.nuevos),
+        self.var_linea_ubicacion_resultados.set("Ubicación: {0}".format(ubicacion))
+        self.var_linea_estadisticas_resultados.set(
+            "Esperados: {0} | Encontrados: {1} | Faltan: {2} | Nuevos: {3}".format(
+                len(epcs_esperados),
+                len(resultado.encontrados),
+                len(resultado.faltantes),
+                len(resultado.nuevos),
             )
         )
 
-        self._result_rows = []
+        self._filas_resultados_inventario = []
+        self._resultado_iid_a_epc = {}
+        self._filas_resultados_inventario = construir_filas_resultado(resultado, muestra)
 
-        for epc in r.encontrados:
-            rss = snap["last_rssi"].get(epc, "")
-            self._result_rows.append(
-                {"kind": "encontrado", "status": "ENCONTRADO", "epc": epc, "rssi": rss}
-            )
-        for epc in r.faltantes:
-            self._result_rows.append(
-                {"kind": "faltante", "status": "NO ESCANEADO", "epc": epc, "rssi": ""}
-            )
-        for epc in r.nuevos:
-            rss = snap["last_rssi"].get(epc, "")
-            self._result_rows.append(
-                {"kind": "nuevo", "status": "ACTIVO NUEVO", "epc": epc, "rssi": rss}
-            )
+        self._modo_filtro_resultados.set("todos")
+        self._aplicar_filtro_resultados()
 
-        self._filter_mode.set("todos")
-        self._apply_result_filter()
+    def _aplicar_filtro_resultados(self):
+        filtro = self._modo_filtro_resultados.get()
+        for item in self.arbol_resultados.get_children():
+            self.arbol_resultados.delete(item)
+        self._resultado_iid_a_epc = {}
 
-    def _apply_result_filter(self):
-        mode = self._filter_mode.get()
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        for row in self._result_rows:
-            if mode == "faltantes" and row["kind"] != "faltante":
+        for fila in self._filas_resultados_inventario:
+            if filtro == "faltantes" and fila["tipo"] != "faltante":
                 continue
-            if mode == "nuevos" and row["kind"] != "nuevo":
+            if filtro == "nuevos" and fila["tipo"] != "nuevo":
                 continue
-            tag = "found"
-            if row["kind"] == "faltante":
-                tag = "missing"
-            elif row["kind"] == "nuevo":
-                tag = "new"
-            self.tree.insert(
+            etiqueta = "encontrado"
+            if fila["tipo"] == "faltante":
+                etiqueta = "faltante"
+            elif fila["tipo"] == "nuevo":
+                etiqueta = "nuevo"
+            epc = fila["epc"]
+            texto_activo = mostrar_activo_desde_epc(epc)
+            iid = self.arbol_resultados.insert(
                 "",
                 tk.END,
-                values=(row["status"], row["epc"], row["rssi"]),
-                tags=(tag,),
+                values=(fila["estado"], texto_activo, fila["rssi"]),
+                tags=(etiqueta,),
             )
+            self._resultado_iid_a_epc[iid] = epc
 
-    def _on_result_double_click(self, event):
-        sel = self.tree.selection()
-        if not sel:
+    def _al_doble_clic_resultado(self, event):
+        seleccion = self.arbol_resultados.selection()
+        if not seleccion:
             return
-        vals = self.tree.item(sel[0], "values")
-        if len(vals) < 3:
+        valores = self.arbol_resultados.item(seleccion[0], "values")
+        if len(valores) < 3:
             return
-        status, epc, rssi = vals[0], vals[1], vals[2]
-        self.detail_epc_var.set(epc)
-        self.detail_status_var.set(status)
-        self.detail_loc_var.set(self._result_location)
-        self.detail_rssi_var.set(rssi if rssi else "—")
-        self._show_frame("detail")
+        estado_fila, _texto, rssi = valores[0], valores[1], valores[2]
+        epc = self._resultado_iid_a_epc.get(seleccion[0], "")
+        self.var_detalle_epc.set(epc)
+        self.var_detalle_codigo_activo.set(codigo_activo_o_guion_desde_epc(epc))
+        self.var_detalle_estado.set(estado_fila)
+        self.var_detalle_ubicacion.set(self._ubicacion_texto_resultados)
+        self.var_detalle_rssi.set(rssi if rssi else "—")
+        self._mostrar_marco("detalle")
 
-    def on_close(self):
+    def al_cerrar_ventana(self):
         try:
-            self._cancel_pending_pistol_start()
-            self._scanner.resume()
-            self._scanner.stop()
-            self._driver.close()
+            self._cancelar_inicio_pistoleo_pendiente()
+            self._escaner.reanudar()
+            self._escaner.detener()
+            self._lector.cerrar()
         finally:
             self.destroy()
 
 
-def main():
-    HandheldApp().mainloop()
+def main() -> int:
+    AplicacionInventario().mainloop()
     return 0
 
 

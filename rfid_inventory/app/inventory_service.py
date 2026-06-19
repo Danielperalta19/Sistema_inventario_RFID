@@ -1,27 +1,28 @@
-from rfid_inventory.domain import compare_expected_found
+"""Inventario por ubicación: catálogo + escáner + comparación de dominio."""
+
+from rfid_inventory.domain import comparar_esperados_y_leidos
 
 
-class InventoryService:
+class ServicioInventario:
     """
-    Capa de aplicación: une catálogo (esperados) + lecturas (scanner) + comparación (dominio).
+    Capa de aplicación: une catálogo (esperados) + lecturas del escáner + comparación (dominio).
 
     La UI solo debería llamar a este servicio y renderizar resultados.
     """
 
-    def __init__(self, locations, scanner):
-        self._locations = locations
-        self._scanner = scanner
+    def __init__(self, mapa_ubicacion_a_epcs, escaner):
+        self._mapa_ubicacion_a_epcs = mapa_ubicacion_a_epcs
+        self._escaner = escaner
 
-    def get_expected_set(self, location_name):
-        return set(self._locations.get(location_name, []))
+    def conjunto_esperados(self, nombre_ubicacion):
+        return set(self._mapa_ubicacion_a_epcs.get(nombre_ubicacion, []))
 
-    def expected_count(self, location_name):
-        return len(self._locations.get(location_name, []))
+    def cantidad_esperados(self, nombre_ubicacion):
+        return len(self._mapa_ubicacion_a_epcs.get(nombre_ubicacion, []))
 
-    def compare_location(self, location_name):
-        expected = self.get_expected_set(location_name)
-        snap = self._scanner.snapshot()
-        found = set(snap["seen_epcs"])
-        result = compare_expected_found(expected, found)
-        return result, snap, expected
-
+    def comparar_ubicacion(self, nombre_ubicacion):
+        esperados = self.conjunto_esperados(nombre_ubicacion)
+        muestra = self._escaner.instantanea()
+        encontrados = set(muestra["seen_epcs"])
+        resultado = comparar_esperados_y_leidos(esperados, encontrados)
+        return resultado, muestra, esperados

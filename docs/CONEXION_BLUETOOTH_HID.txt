@@ -1,0 +1,81 @@
+Emparejar Pi (HID BLE) con Windows
+
+Orden: preparar la Pi, arrancar el servidor HID, emparejar y CONECTAR en Windows.
+Síntoma típico del fallo: en Windows queda "Emparejado" un segundo "Conectado" y vuelve a solo emparejado, sin teclas ni EPC.
+
+Reparación rápida en la Pi (recomendado tras subir el proyecto)
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  chmod +x scripts/reparar_bluetooth_hid.sh systemd/rfid-hid-post-gatt.sh
+  sudo ./scripts/reparar_bluetooth_hid.sh
+
+  Debe verse en journal: "GATT application registered"
+  journalctl -u rfid-hid-gatt.service -n 20
+
+  Reinstalar unidad si cambió el servicio (ruta user, ExecStartPost):
+
+  sudo cp systemd/rfid-hid-gatt.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable rfid-hid-gatt.service
+  sudo systemctl restart rfid-hid-gatt.service
+
+1. En la Pi
+
+  sudo systemctl restart bluetooth
+  (espera unos segundos)
+
+  sudo hciconfig hci0 class 0x000540
+  sudo bluetoothctl power on
+  sudo bluetoothctl pairable on
+  sudo bluetoothctl discoverable on
+
+  sudo btmgmt -i hci0 connectable on
+  sudo btmgmt -i hci0 bondable on
+  sudo btmgmt -i hci0 advertising on
+
+2. Servidor HID
+
+  Con systemd (producción):
+
+  sudo systemctl start rfid-hid-gatt.service
+
+  O manual (prueba):
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  export RFID_PORT=/dev/ttyUSB0
+  export RFID_BAUD=115200
+  sudo -E python3 gatt_server_rfid.py
+
+  Debe aparecer "GATT application registered". Tras eso el script post-gatt
+  vuelve a activar advertising (Windows no conecta si advertising queda off).
+
+3. En Windows (importante)
+
+  NO basta con Ajustes > Bluetooth > Emparejar.
+
+  1) Olvida el dispositivo si ya falló antes.
+  2) Abre "Bluetooth LE Explorer" (Microsoft Store).
+  3) Busca la Pi > Pair.
+  4) Pulsa Connect y deja que quede en estado conectado (no solo emparejado).
+  5) Bloc de notas o scanner_inventario_prueba.html para probar.
+
+4. Confirmación en la Pi
+
+  El script post-gatt configura agent NoInputNoOutput y trust a emparejados.
+  Si aún pide código, acéptalo en VNC / Pi Connect.
+
+5. Probar
+
+  Bloc de notas, o rfid_inventory/pi_ble_hid/web/scanner_inventario_prueba.html
+
+  Desde la GUI de la pistola: menú Bluetooth HID cierra el serial y arranca GATT.
+  No uses inventario y HID a la vez en el mismo puerto (/etc/default/rfid-hid-gatt).
+
+Notas
+
+  A veces Configuración de Windows dice que no responde, pero LE Explorer sí conecta.
+
+  Si falla: olvida en Windows; en la Pi: sudo bluetoothctl remove <MAC>;
+  sudo ./scripts/reparar_bluetooth_hid.sh
+
+  Ver también docs/PI_BLE_HID.txt y docs/AUTOSTART_HID.txt

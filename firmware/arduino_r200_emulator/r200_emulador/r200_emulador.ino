@@ -11,6 +11,10 @@
 #include <Arduino.h>
 #include <string.h>
 
+// EPCs generados desde JSON (activos/ubicaciones) + extras.
+// Archivo: epc_list_generated.h
+#include "inframe.h"
+#include "epc_list_generated.h"
 static const uint8_t HDR = 0xAA;
 static const uint8_t END = 0xDD;
 
@@ -33,24 +37,8 @@ static const uint16_t PC_DEFAULT = 0x3000;
 static const uint16_t CRC_DEFAULT = 0x0000;
 
 static const uint16_t TAG_GAP_MS = 15;
-static const uint8_t MULTI_MIN = 6;
-static const uint8_t MULTI_MAX = 22;
-
-// EPC = 12 bytes 
-static const uint8_t EPC_LIST[][12] = {
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30}, // 750100000000
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x31}, // 750100000001
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x32}, // 750100000002
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x33}, // 750100000003
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x34}, // 750100000004
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x35}, // 750100000005
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x36}, // 750100000006
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x37}, // 750100000007
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x38}, // 750100000008
-  {0x37,0x35,0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x39}, // 750100000009
-};
-
-static const uint8_t EPC_COUNT = sizeof(EPC_LIST) / sizeof(EPC_LIST[0]);
+static const uint8_t MULTI_MIN = 7;
+static const uint8_t MULTI_MAX = 15;
 
 static uint8_t checksum(uint8_t type, uint8_t cmd, uint16_t len, const uint8_t* params) {
   uint32_t s = 0;
@@ -86,11 +74,10 @@ static uint8_t rssi() {
   return (uint8_t)random((int)RSSI_MIN, (int)RSSI_MAX + 1);
 }
 
-static const uint8_t* nextEpc() {
-  static uint8_t idx = 0;
-  const uint8_t* out = EPC_LIST[idx];
-  idx = (uint8_t)((idx + 1) % EPC_COUNT);
-  return out;
+static const uint8_t* randomEpc() {
+  if (EPC_COUNT == 0) return EPC_LIST[0];
+  uint8_t idx = (uint8_t)random((long)0, (long)EPC_COUNT);
+  return EPC_LIST[idx];
 }
 
 static void sendTagNotify(const uint8_t epc12[12]) {
@@ -105,14 +92,6 @@ static void sendTagNotify(const uint8_t epc12[12]) {
   p[16] = (uint8_t)((uint16_t)(CRC_DEFAULT % 256) & 0xFF);
   sendFrame(TYPE_NOTIFICATION, CMD_SINGLE_POLL, p, 17);
 }
-
-struct InFrame {
-  uint8_t type;
-  uint8_t cmd;
-  uint16_t len;
-  uint8_t params[256];
-  uint8_t csum;
-};
 
 static bool readExact(uint8_t* out, uint16_t n, uint16_t timeoutMs) {
   uint32_t t0 = millis();
@@ -193,10 +172,13 @@ static void handle(const InFrame& f) {
       sendError(0x15);
       return;
     }
-    uint8_t n = (uint8_t)random(MULTI_MIN, (uint8_t)(MULTI_MAX + 1));
+    // Ráfagas variables (7..15 típicamente). A veces 0 para simular "no vi nada".
+    uint8_t n = (uint8_t)random(0, (uint8_t)(MULTI_MAX + 1));
+    if (n > 0 && n < MULTI_MIN) n = (uint8_t)random(MULTI_MIN, (uint8_t)(MULTI_MAX + 1));
     for (uint8_t i = 0; i < n; i++) {
-      sendTagNotify(nextEpc());
-      delay(TAG_GAP_MS);
+      sendTagNotify(randomEpc());
+      // Gap ligeramente variable para que se sienta menos "perfecto".
+      delay((uint16_t)random((long)10, (long)(TAG_GAP_MS + 20)));
     }
     return;
   }

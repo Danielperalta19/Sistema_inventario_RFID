@@ -1,0 +1,62 @@
+Modo Bluetooth HID desde la GUI
+
+La Pi se anuncia como teclado BLE para que Windows reciba las lecturas como teclas.
+
+Prerrequisitos
+
+  Pi OS con BlueZ (bluetooth activo).
+  Repo en ~/Sistema_inventario_RFID
+
+  which bluetoothctl
+  which btmgmt
+  sudo systemctl restart bluetooth
+
+Prueba rápida (manual)
+
+  sudo bluetoothctl power on
+  sudo bluetoothctl pairable on
+  sudo bluetoothctl discoverable on
+  sudo btmgmt -i hci0 connectable on
+  sudo btmgmt -i hci0 advertising on
+  sudo btmgmt -i hci0 info
+
+Autostart (recomendado)
+
+  Ver AUTOSTART_HID.txt. Unidades: rfid-hid-bt-up.service, rfid-hid-gatt.service.
+  Opcional: rfid-hid-bt-up-post.service si tras el boot no queda advertising.
+
+Emparejar en Windows
+
+  Bluetooth LE Explorer → Pair. Si la Pi pide confirmación, acéptala en la Pi (VNC o pantalla). Prueba en Bloc de notas.
+
+Botón en la app (sin pedir contraseña)
+
+  La GUI ejecuta: sudo -n btmgmt -i hci0 advertising on
+
+  Crea /etc/sudoers.d/rfid-btmgmt con visudo:
+
+  user ALL=(root) NOPASSWD: /usr/bin/btmgmt -i hci0 advertising on
+
+  Opcional (mismo puerto serial que inventario):
+
+  user ALL=(root) NOPASSWD: /usr/bin/systemctl stop rfid-hid-gatt.service, /usr/bin/systemctl start rfid-hid-gatt.service
+
+  (Ajusta user y la ruta de systemctl si which systemctl dice /bin/systemctl.)
+
+  Prueba:
+    sudo -n /usr/bin/btmgmt -i hci0 advertising on
+
+Puerto serial compartido
+
+  Si /etc/default/rfid-hid-gatt tiene RFID_PORT, el servicio y la GUI no pueden usar el mismo puerto a la vez.
+
+  Con sudoers: al pistolear inventario la app intenta detener rfid-hid-gatt; al entrar a modo Bluetooth cierra el lector en la GUI y puede volver a iniciar el servicio.
+
+  Sin sudoers: aviso en la app o scripts en pi_ble_hid/scripts/.
+
+Problemas rápidos
+
+  sudo systemctl status bluetooth
+  sudo btmgmt -i hci0 info
+  journalctl -u rfid-hid-gatt.service -e --no-pager
+  sudo pkill -f gatt_server_rfid.py && sudo systemctl restart rfid-hid-gatt.service

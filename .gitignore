@@ -17,3 +17,6 @@ Desktop.ini
 
 # Inventario guardado desde la pistola (local)
 data/
+
+# Reportes generados por la app (sesiones)
+rfid_inventory/pi_ble_hid/web/resultados/

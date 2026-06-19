@@ -1,0 +1,80 @@
+RSSI y distancia aproximada (rastreador de activos)
+==================================================
+
+Qué es el RSSI
+--------------
+RSSI (Received Signal Strength Indicator) es la potencia de la señal que el lector
+recibe del tag RFID, expresada en dBm (decibelios respecto a 1 mW).
+
+  · Cero dBm = 1 mW de potencia recibida.
+  · Valores negativos son habituales en RFID UHF pasivo.
+  · A mayor RSSI (más cercano a 0) → señal más fuerte → en la práctica suele
+    indicar que el tag está más cerca de la antena del lector.
+
+Relación con la distancia (teoría simplificada)
+-----------------------------------------------
+En espacio libre, la potencia recibida cae aproximadamente con el cuadrado de la
+distancia (ley de Friis). En escala logarítmica (dBm):
+
+  · Cada ~6 dB de pérdida ≈ duplicar la distancia (solo en condiciones ideales).
+  · Ejemplo ideal: si a 1 m el RSSI fuera -50 dBm, a 2 m podría bajar ~6 dB (-56),
+    a 4 m otros ~6 dB (-62), etc.
+
+En interiores (laboratorio, oficina, CICESE) la relación NO es estable:
+
+  · Paredes, metal, estanterías, líquidos y personas atenúan o reflejan la onda.
+  · El tag no siempre presenta la misma cara a la antena (polarización).
+  · Multipath: la señal llega por varios caminos y el RSSI sube o baja sin moverse.
+  · Potencia TX del lector, sensibilidad del módulo R200 y tipo de etiqueta influyen.
+
+Por eso el sistema NO debe prometer “está a 3,27 m”, sino bandas cualitativas.
+
+
+Bandas orientativas usadas en el software (lector pistola UHF, interior)
+------------------------------------------------------------------------
+Valores de referencia para el módulo R200 y antena de mano; calibrar en su sitio
+si hace falta afinar umbrales.
+
+  RSSI (dBm)     Interpretación aproximada
+  ----------     ---------------------------
+  >= -45         Muy cerca (decenas de centímetros)
+  -45 a -55      Cerca (~0,5 a 2 m)
+  -55 a -65      Distancia media (~2 a 5 m)
+  -65 a -75      Lejos (~5 a 10 m)
+  -75 a -85      Muy lejos (>10 m o lectura en el límite)
+  < -85          Casi sin señal / fuera de rango útil
+
+Ejemplos de lectura (orientativos):
+
+  · RSSI -48 dBm → probablemente al alcance de la mano o menos de ~1 m.
+  · RSSI -60 dBm → “lejos” en sala: varios metros, o tag mal orientado aunque esté cerca.
+  · RSSI -72 dBm → señal débil: tag lejano, obstáculo, o potencia TX baja.
+
+Si dos lecturas difieren 10 dB sin mover el tag, es normal en RFID indoor.
+
+
+Dos indicadores en la pantalla “Rastrear activo”
+------------------------------------------------
+1) Texto por RSSI absoluto (tabla anterior): “Cerca”, “Lejos”, etc.
+
+2) Barra de proximidad (0–100 %): compara el RSSI actual con el mínimo y máximo
+   vistos desde que pulsaste “Iniciar rastreo”. Sirve como juego “frío/caliente”
+   al caminar: si la barra sube, te acercas respecto a donde empezaste, aunque el
+   número en dBm no coincida con metros fijos.
+
+Recomendación de uso en campo
+-----------------------------
+  · Buscar el activo por EPC/código, iniciar rastreo y moverse lentamente.
+  · Ignorar un solo pico de RSSI; mirar el valor suavizado y la tendencia.
+  · Si el RSSI no sube al acercarse, girar el tag o cambiar de pasillo (multipath).
+  · Para el informe: citar que es localización aproximada por intensidad de señal,
+    no GPS ni medición laser.
+
+
+Referencias para profundizar
+----------------------------
+  · Path loss model: PL(d) = PL(d0) + 10·n·log10(d/d0)  (n = exponente de pérdida, ~2–4 indoor)
+  · EPCglobal / ISO 18000-6C: backscatter UHF; RSSI reportado por el chip del lector
+  · Comparar con “RSSI-based ranging” en RFID: útil para proximidad, pobre para metros exactos
+
+Código: rfid_inventory/app/proximity_tracker.py (función banda_distancia_aproximada).

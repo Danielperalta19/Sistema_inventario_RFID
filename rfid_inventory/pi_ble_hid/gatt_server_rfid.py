@@ -859,6 +859,21 @@ def _load_r200_class(_rf_pkg_dir):
     return sync.R200
 
 
+def _epc_bytes_to_hid_line(epc_raw: bytes) -> str:
+    """Línea que se envía al teclado HID. Por defecto: hex(24) + salto. Con
+    RFID_HID_ASCII=1: si EPC = ASCII rellenado a 12 bytes (p. ej. código de
+    activo de catálogo), se envía el texto en claro + salto, como lector
+    de códigos de barra hacia el módulo de inventario en el navegador.
+    """
+    h = epc_raw.hex()
+    v = (os.environ.get("RFID_HID_ASCII") or "").lower()
+    if v in ("1", "true", "yes", "on"):
+        tail = epc_raw.rstrip(b"\x00")
+        if tail and all(32 <= c < 127 for c in tail):
+            return tail.decode("ascii") + "\n"
+    return h + "\n"
+
+
 def _rfid_worker_loop(port, baud, debounce_s):
     _root = os.path.dirname(os.path.abspath(__file__))
     _vendor = os.path.join(_root, "..", "vendor")
@@ -885,7 +900,8 @@ def _rfid_worker_loop(port, baud, debounce_s):
                     continue
                 last_epc = epc_hex
                 last_t = now
-                line = epc_hex + "\n"
+                raw = bytes(tags[0].epc)
+                line = _epc_bytes_to_hid_line(raw)
                 print(f"tag -> HID: {line.strip()}")
                 _schedule_send_text(line)
         except Exception as exc:
@@ -910,9 +926,36 @@ def _maybe_start_rfid_thread():
 ######################################################
 # MAIN
 ######################################################
+def _refrescar_anuncio_ble():
+    """Windows suele quedar en 'emparejado' si advertising/connectable caen tras registrar GATT."""
+    import subprocess
+
+    for args in (
+        ['btmgmt', '-i', 'hci0', 'connectable', 'on'],
+        ['btmgmt', '-i', 'hci0', 'bondable', 'on'],
+        ['btmgmt', '-i', 'hci0', 'advertising', 'on'],
+    ):
+        try:
+            p = subprocess.run(args, capture_output=True, text=True, timeout=20)
+            if p.returncode != 0:
+                print('ble refresh %s rc=%s err=%s' % (args, p.returncode, (p.stderr or '').strip()))
+        except Exception as exc:
+            print('ble refresh %s: %s' % (args, exc))
+    try:
+        subprocess.run(
+            ['hciconfig', 'hci0', 'class', '0x000540'],
+            capture_output=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        print('hciconfig class: %s' % exc)
+    return False
+
+
 def register_app_cb():
     print('GATT application registered')
     _maybe_start_rfid_thread()
+    GLib.idle_add(_refrescar_anuncio_ble)
 
 
 def register_app_error_cb(error):

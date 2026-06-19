@@ -1,0 +1,33 @@
+Bluetooth HID + RFID en la Pi
+
+Índice de guías
+
+  CONEXION_BLUETOOTH_HID.txt — Emparejar con Windows.
+  AUTOSTART_HID.txt — systemd al encender la Pi.
+  GUIA_MODO_BLUETOOTH_HID_RPI.txt — Botón en la GUI, sudoers, puerto serial.
+  DESPLIEGUE_PI.txt — App en la Pi (autostart, teclado integrado).
+
+Archivos en rfid_inventory/pi_ble_hid/
+
+  gatt_server_rfid.py — Servidor GATT + lectura R200 opcional.
+  hid_keys.py — Texto a teclas HID.
+  systemd/ — unidades y rfid-hid-bt-up.sh
+  Demo original (MIT): https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral
+
+Copia a la Pi: carpeta pi_ble_hid y vendor/rfid_r200.
+
+Solo HID (sin lector en el servicio):
+
+  cd ~/Sistema_inventario_RFID/rfid_inventory/pi_ble_hid
+  sudo python3 gatt_server_rfid.py
+
+HID + R200:
+
+  export RFID_PORT=/dev/ttyUSB0
+  export RFID_BAUD=115200
+  export RFID_DEBOUNCE_S=0.35
+  sudo -E python3 gatt_server_rfid.py
+
+Si la web espera Tab en lugar de Enter, en gatt_server_rfid.py cambia el "\n" final por "\t".
+
+Origen del demo (MIT): https://github.com/HeadHodge/Bluez-HID-over-Gatt-Keyboard-Peripheral

@@ -1,5 +1,5 @@
-"""Orquestación: flujo trigger -> scan -> compare -> report."""
+"""Capa de aplicación: escaneo en segundo plano, servicios y reglas de negocio."""
 
-from .scanner import Scanner
+from .scanner import Escaner
 
-__all__ = ["Scanner"]
+__all__ = ["Escaner"]

@@ -1,2 +1,2 @@
-"""UI layer (CLI/GUI)."""
+"""Capa de interfaz (Tkinter y utilidades de presentación)."""
 

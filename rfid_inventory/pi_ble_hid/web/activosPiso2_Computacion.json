@@ -1,0 +1,222 @@
+[
+  {
+    "idDetalle": 39699,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000358",
+      "descripcion": "Escritorio de madera p/computadora c/librero  48 X 36\"",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39731,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000370",
+      "descripcion": "Escritorio p/computadora c/ 5 cajones frentes de encino",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39697,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000396",
+      "descripcion": "Mesa p/computadora 6x30x29 c/tabla p/teclado",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39718,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000468",
+      "descripcion": "Escritorio c/librero en madera color claro y porta impresora 48 X 36\"",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39738,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000481",
+      "descripcion": "Librero del escritorio de madera p/estudiantes  48 X 30\"",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39700,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000483",
+      "descripcion": "Librero del escritorio p/estudiantes",
+      "idUbicacion": 905,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: DBEA NORTE - Piso: 3 - Departamento: BIOLOGIA DE LA CONSERVACION. - Cubo: 307 - Area: Área de Estudiantes",
+      "nombreResponsable": "2049 - GONZALEZ2049 GOMEZ2049 MARIA GUADALUPE2049"
+    }
+  },
+  {
+    "idDetalle": 39751,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA000486",
+      "descripcion": "Escritorio c/librero en madera color claro y porta impresora  48 X 36\"",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "756 - GUTIERREZ756 CRUZ756 ANDREA756"
+    }
+  },
+  {
+    "idDetalle": 39745,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001513",
+      "descripcion": "Camara digital con accesorios",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "756 - GUTIERREZ756 CRUZ756 ANDREA756"
+    }
+  },
+  {
+    "idDetalle": 39742,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001746",
+      "descripcion": "Archivero lateral de 4 cajones color beige",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39727,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001807",
+      "descripcion": "Mesa redonda de encino de 107 cm",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39746,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA001950",
+      "descripcion": "Camara digital",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39725,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002466",
+      "descripcion": "Brazo rob¿tico con controlador",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39726,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002471",
+      "descripcion": "Robot Movil",
+      "idUbicacion": 776,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: TELEMATICA - Piso: 1 - Departamento: CIENCIAS DE LA COMPUTACION - Cubo: 102 - Area: Lab. Evovision",
+      "nombreResponsable": "1895 - FLORES1895 GUTIERREZ1895 SOFIA1895"
+    }
+  },
+  {
+    "idDetalle": 39752,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA002913",
+      "descripcion": "Librero de madera 12 divisiones color barniz",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39692,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003466",
+      "descripcion": "Panel Calibrador CFK",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39744,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003653",
+      "descripcion": "Paralelo 3 Jaw",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39701,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003690",
+      "descripcion": "CPU Dell",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39733,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003696",
+      "descripcion": "Silla secretarial color negra",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39724,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003698",
+      "descripcion": "Silla secretarial color negra",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  },
+  {
+    "idDetalle": 39729,
+    "tipoUbicacion": "N",
+    "activo": {
+      "activo": "FA003798",
+      "descripcion": "Computadora personal Dell",
+      "idUbicacion": 170,
+      "nombreUbicacion": "Unidad: CICESE - Edificio: FISICA APLICADA - Piso: 1 - Departamento: OPTICA - Cubo: 126",
+      "nombreResponsable": "1696 - MARTINEZ1696 RAMOS1696 ANDREA1696 DIANA1696"
+    }
+  }
+]
