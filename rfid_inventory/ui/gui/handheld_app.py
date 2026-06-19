@@ -82,7 +82,7 @@ class AplicacionInventario(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Inventario RFID PRUEBA")
+        self.title("Inventario RFID")
         self._sin_decoracion_ventana = self._sin_barra_titulo_solicitada()
         if self._sin_decoracion_ventana:
             try:
