@@ -82,7 +82,7 @@ class AplicacionInventario(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Inventario RFID")
+        self.title("Inventario RFID PRUEBA")
         self._sin_decoracion_ventana = self._sin_barra_titulo_solicitada()
         if self._sin_decoracion_ventana:
             try:
@@ -139,7 +139,7 @@ class AplicacionInventario(tk.Tk):
         self.contenedor = tk.Frame(self)
         self.contenedor.pack(fill="both", expand=True)
         self._teclado_virtual = TecladoVirtual(self)
-
+    
         self._marco_menu = None
         self._marco_inicio = None
         self._marco_conexion = None
@@ -215,7 +215,7 @@ class AplicacionInventario(tk.Tk):
     def _hid_en_main_despues_cerrar_serial(self) -> None:
         """Tras soltar el USB: detiene escáner/temporizador en el hilo de la UI."""
         self._detener_actividad_lector_en_ui()
-
+        
         threading.Thread(
             target=lambda: self._hilo_activar_gatt_y_ble(mostrar_errores_ui=True),
             daemon=True,
