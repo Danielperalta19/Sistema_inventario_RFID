@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .epc12_codec import codigo_activo_a_epc12_hex
+from .http_client import get as ws_get, ws_load_assets_enabled
 
 
 def _leer_json_primera_ruta_valida(rutas: list[str]) -> Any:
@@ -140,6 +141,82 @@ def cargar_ubicaciones_anidadas_desde_json(rutas: RutasCatalogo) -> dict[str, di
             continue
         vistos_por_sala[clave].add(epc_hex)
         anidado.setdefault(edif, {}).setdefault(sala, []).append(epc_hex)
+
+    # Orden estable
+    for edif in anidado:
+        for sala in anidado[edif]:
+            anidado[edif][sala].sort()
+    return anidado
+
+
+def cargar_ubicaciones_anidadas(rutas: RutasCatalogo) -> dict[str, dict[str, list[str]]]:
+    """Intentar cargar catálogo desde el web service; si falla, usar JSON local.
+
+    - Obtiene las ubicaciones desde `/listadoUbicacionesContPat`.
+    - Si `RFID_WS_LOAD_ASSETS` está habilitado, intenta obtener inventarios y
+      luego `datosInventarioContPat` para poblar activos por ubicación.
+    """
+    # 1) Intentar cargar ubicaciones desde WS
+    try:
+        filas_ubic = ws_get("/listadoUbicacionesContPat") or []
+    except Exception:
+        filas_ubic = None
+
+    if not filas_ubic or not isinstance(filas_ubic, list):
+        # Fallback a JSON local
+        return cargar_ubicaciones_anidadas_desde_json(rutas)
+
+    # Construir map id->fila similar al loader JSON
+    ubic_por_id: dict[int, dict] = {}
+    for u in filas_ubic:
+        if not isinstance(u, dict):
+            continue
+        uid = u.get("idUbicacion")
+        if isinstance(uid, int):
+            ubic_por_id[uid] = u
+
+    anidado: dict[str, dict[str, list[str]]] = {}
+    vistos_por_sala: dict[tuple[str, str], set[str]] = {}
+
+    for _uid, u in ubic_por_id.items():
+        edif = u.get("edificio") or "(Sin edificio)"
+        sala = _sala_desde_fila_ubicacion(u)
+        anidado.setdefault(edif, {}).setdefault(sala, [])
+        vistos_por_sala.setdefault((edif, sala), set())
+
+    # Si se desea poblar activos desde WS, hagámoslo (opcional, puede ser costoso)
+    if ws_load_assets_enabled():
+        inv_list = ws_get("/inventariosAjaxContPat") or []
+        if isinstance(inv_list, list):
+            for inv in inv_list:
+                inv_id = inv.get("idInventario") or inv.get("id")
+                if not inv_id:
+                    continue
+                filas_activos = ws_get("/datosInventarioContPat", params={"idInventario": inv_id}) or []
+                # filas_activos esperado: lista de activos con campo idUbicacion o similar
+                if not isinstance(filas_activos, list):
+                    continue
+                for a in filas_activos:
+                    # estructura esperada incierta; buscar idUbicacion y clave
+                    uid = None
+                    if isinstance(a, dict):
+                        uid = a.get("idUbicacion") or (a.get("activo") or {}).get("idUbicacion")
+                        code = a.get("codigo") or a.get("activo") or a.get("clave")
+                    else:
+                        continue
+                    if not uid or uid not in ubic_por_id:
+                        continue
+                    u = ubic_por_id[uid]
+                    edif = u.get("edificio") or "(Sin edificio)"
+                    sala = _sala_desde_fila_ubicacion(u)
+                    epc_hex = codigo_activo_a_epc12_hex(str(code)) if code else None
+                    if not epc_hex:
+                        continue
+                    clave = (edif, sala)
+                    if epc_hex in vistos_por_sala.setdefault(clave, set()):
+                        continue
+                    vistos_por_sala[clave].add(epc_hex)
+                    anidado.setdefault(edif, {}).setdefault(sala, []).append(epc_hex)
 
     # Orden estable
     for edif in anidado:
